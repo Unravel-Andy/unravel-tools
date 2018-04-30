@@ -1,6 +1,7 @@
-### check_cdh_config.py
+## check_cdh_config.py
 
-sample usage: `./check_cdh_config.py --spark-version 1.6,2.2 --cm_host congo21.unraveldata.com --unravel-host congo24.unraveldata.com`
+#### sample usage:
+`./check_cdh_config.py --spark-version 1.6,2.2 --cm_host congo21.unraveldata.com --unravel-host congo24.unraveldata.com`
 
 ```
 required arguments:
@@ -25,7 +26,22 @@ optional arguments:
   -h, --help            show this help message and exit
  ```
 
-sample output:
+#### Fields that this script will check:
+* Cloudera Configuration
+    * hadoop-env.sh
+    * mapred-site.xml
+    * hive-site.xml
+    * hive-env.sh
+    * spark-defaults
+    * spark2-default
+    * Unravel Sensor parcel state
+* /usr/local/unravel owner and group
+* unravel.properties file
+    * Hive Metasotore properties
+* Daemone status and error/fatal messages from Unravel UI
+
+
+#### sample output:
 ![img1](screenshot/20180428-201238.png)
 ![img2](screenshot/20180428-201352.png)
 ![img3](screenshot/20180428-201418.png)

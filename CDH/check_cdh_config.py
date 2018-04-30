@@ -144,36 +144,49 @@ def check_cdh_config():
     for groups in h_groups:
         for name, config in groups.get_config(view='full').items():
             # Gateway Client Environment Advanced Configuration Snippet (Safety Valve) for hive-env.sh
-            if name == 'hive_client_env_safety_valve':
-                print('------------------------------------------------------------------')
-                if suggest_configs['hive-env'] == config.value.strip():
-                    print(colored('\nGateway Client Environment Advanced Configuration Snippet (Safety Valve) for hive-env.sh found\n', 'green'))
-                    print(config.value)
-                else:
-                    print(colored('\nGateway Client Environment Advanced Configuration Snippet (Safety Valve) for hive-env.sh found\n', 'yellow'))
-                    print(colored('Current Value:\n' + config.value + '\n', 'red'))
-                    print(colored('Suggest Value:\n' + suggest_configs['hive-env'], 'green', attrs=['reverse']))
+            try:
+                if name == 'hive_client_env_safety_valve':
+                    print('------------------------------------------------------------------')
+                    if suggest_configs['hive-env'] == config.value.strip():
+                        print(colored('\nGateway Client Environment Advanced Configuration Snippet (Safety Valve) for hive-env.sh found\n', 'green'))
+                        print(config.value)
+                    else:
+                        print(colored('\nGateway Client Environment Advanced Configuration Snippet (Safety Valve) for hive-env.sh found\n', 'yellow'))
+                        print(colored('Current Value:\n' + config.value + '\n', 'red'))
+                        print(colored('Suggest Value:\n' + suggest_configs['hive-env'], 'green', attrs=['reverse']))
+            except:
+                printRed('\nGateway Client Environment Advanced Configuration Snippet (Safety Valve) for hive-env.sh NOT found\n')
+                print('Suggest Value:\n' + suggest_configs['hive-env'])
             # Hive Client Advanced Configuration Snippet (Safety Valve) for hive-site.xml
-            if name == 'hive_client_config_safety_valve':
-                print('------------------------------------------------------------------')
-                if  argv.unravel in config.value:
-                    print (colored('\nHive Client Advanced Configuration Snippet (Safety Valve) for hive-site.xml found\n', 'green'))
-                    # print(name,hive_site_snip)
-                    print(config.value)
-                else:
-                    print (colored('\nHive Client Advanced Configuration Snippet (Safety Valve) for hive-site.xml found\n', 'yellow'))
-                    print(colored('Current Value:\n' + config.value + '\n', 'red'))
-                    print(colored('Suggest Value:\n' + suggest_configs['hive-site'], 'green', attrs=['reverse']))
+            try:
+                if name == 'hive_client_config_safety_valve':
+                    print('------------------------------------------------------------------')
+                    if  argv.unravel in config.value:
+                        print (colored('\nHive Client Advanced Configuration Snippet (Safety Valve) for hive-site.xml found\n', 'green'))
+                        # print(name,hive_site_snip)
+                        print(config.value)
+                    else:
+                        print (colored('\nHive Client Advanced Configuration Snippet (Safety Valve) for hive-site.xml found\n', 'yellow'))
+                        print(colored('Current Value:\n' + config.value + '\n', 'red'))
+                        print(colored('Suggest Value:\n' + suggest_configs['hive-site'], 'green', attrs=['reverse']))
+            except:
+                printRed('\nHive Client Advanced Configuration Snippet (Safety Valve) for hive-site.xml NOT found\n')
+                print('Suggest Value:\n' + suggest_configs['hive-site'])
+
             # HiveServer2 Advanced Configuration Snippet (Safety Valve) for hive-site.xml
-            if name == 'hive_hs2_config_safety_valve':
-                print('------------------------------------------------------------------')
-                if argv.unravel in config.value:
-                    print(colored('\nFound hive server 2 found\n', 'green'))
-                    print(config.value)
-                else:
-                    print(colored('\nFound hive server 2 found\n', 'yellow'))
-                    print(colored('Current Value:\n' + config.value + '\n', 'red'))
-                    print(colored('Suggest Value:\n' + suggest_configs['hive-site'], 'green', attrs=['reverse']))
+            try:
+                if name == 'hive_hs2_config_safety_valve':
+                    print('------------------------------------------------------------------')
+                    if argv.unravel in config.value:
+                        print(colored('\nFound hive server 2 found\n', 'green'))
+                        print(config.value)
+                    else:
+                        print(colored('\nFound hive server 2 found\n', 'yellow'))
+                        print(colored('Current Value:\n' + config.value + '\n', 'red'))
+                        print(colored('Suggest Value:\n' + suggest_configs['hive-site'], 'green', attrs=['reverse']))
+            except:
+                printRed('\nHive server 2 config NOT found\n')
+                print('Suggest Value:\n' + suggest_configs['hive-site'])
 
     y_groups = []
     for group in cluster.get_service('yarn').get_all_role_config_groups():
@@ -182,36 +195,49 @@ def check_cdh_config():
 
     for name, config in y_groups[0].get_config(view='full').items():
         # Gateway Client Environment Advanced Configuration Snippet (Safety Valve) for hadoop-env.sh
-        if name == 'mapreduce_client_env_safety_valve':
-            if suggest_configs['hadoop-env'] == config.value.strip():
+        try:
+            if name == 'mapreduce_client_env_safety_valve':
                 print('------------------------------------------------------------------')
-                print(colored('\nYarn Hook ENV found (hadoop-env)\n', 'green'))
-                print(config.value)
-            else:
-                print(colored('\nYarn hadoop-env Hook ENV found (hadoop-env)\n', 'yellow'))
-                print(colored('Current Value:\n' + config.value + '\n', 'red'))
-                print(colored('Suggest Value:\n' + suggest_configs['hadoop-env'], 'green', attrs=['reverse']))
+                if suggest_configs['hadoop-env'] == config.value.strip():
+                    print(colored('\nYarn Hook ENV found (hadoop-env)\n', 'green'))
+                    print(config.value)
+                else:
+                    print(colored('\nYarn hadoop-env Hook ENV found (hadoop-env)\n', 'yellow'))
+                    print(colored('Current Value:\n' + config.value + '\n', 'red'))
+                    print(colored('Suggest Value:\n' + suggest_configs['hadoop-env'], 'green', attrs=['reverse']))
+        except:
+            printRed('\nYarn Hook ENV NOT found (hadoop-env)\n')
+            print('Suggest Value:\n' + suggest_configs['hadoop-env'])
 
         # MapReduce Client Advanced Configuration Snippet (Safety Valve) for mapred-site.xml
-        if name == 'mapreduce_client_config_safety_valve':
-            print('------------------------------------------------------------------')
-            if suggest_configs['mapred-site'].replace('\n','') == config.value.strip().replace('\n',''):
-                print(colored('\nMapReduce Client Config for mapred-site.xml\n', 'green'))
-                print(config.value)
-            else:
-                print(colored('\nMapReduce Client Clinfig for mapred-site.xml\n', 'yellow'))
-                print(colored('Current Value:\n' + config.value + '\n', 'red'))
-                print(colored('Suggest Value:\n' + suggest_configs['mapred-site'], 'green', attrs=['reverse']))
+        try:
+            if name == 'mapreduce_client_config_safety_valve':
+                print('------------------------------------------------------------------')
+                if suggest_configs['mapred-site'].replace('\n','') == config.value.strip().replace('\n',''):
+                    print(colored('\nMapReduce Client Config for mapred-site.xml\n', 'green'))
+                    print(config.value)
+                else:
+                    print(colored('\nMapReduce Client Clinfig for mapred-site.xml\n', 'yellow'))
+                    print(colored('Current Value:\n' + config.value + '\n', 'red'))
+                    print(colored('Suggest Value:\n' + suggest_configs['mapred-site'], 'green', attrs=['reverse']))
+        except:
+            printRed('\nMapReduce Client Clinfig for mapred-site.xml NOT found\n')
+            print('Suggest Value:\n' + suggest_configs['mapred-site'])
+
         # ApplicationMaster Java Opts Base
-        if name == 'yarn_app_mapreduce_am_command_opts':
-            print('------------------------------------------------------------------')
-            if suggest_configs['yarn-am'] == config.value:
-                print(colored('\nFound Yarn Mapreduce AM command\n', 'green'))
-                print(config.value)
-            else:
-                print(colored('\nFound Yarn Mapreduce AM command\n', 'yellow'))
-                print(colored('Current Value:\n' + config.value + '\n', 'red'))
-                print(colored('Suggest Value:\n' + suggest_configs['yarn-am'], 'green', attrs=['reverse']))
+        try:
+            if name == 'yarn_app_mapreduce_am_command_opts':
+                print('------------------------------------------------------------------')
+                if suggest_configs['yarn-am'] == config.value:
+                    print(colored('\nFound Yarn Mapreduce AM command\n', 'green'))
+                    print(config.value)
+                else:
+                    print(colored('\n Yarn Mapreduce AM command\n', 'yellow'))
+                    print(colored('Current Value:\n' + config.value + '\n', 'red'))
+                    print(colored('Suggest Value:\n' + suggest_configs['yarn-am'], 'green', attrs=['reverse']))
+        except:
+            printRed('\nYarn Mapreduce AM command NOT found\n')
+            print('Suggest Value:\n' + suggest_configs['yarn-am'])
 
 
     s_groups = []
@@ -222,15 +248,19 @@ def check_cdh_config():
     if spark_ver:
         for name, config in s_groups[0].get_config(view='full').items():
             # Spark Client Advanced Configuration Snippet (Safety Valve) for spark-conf/spark-defaults.conf
-            if name == 'spark-conf/spark-defaults.conf_client_config_safety_valve':
-                print('------------------------------------------------------------------')
-                if suggest_configs['spark-defaults'] == config.value.strip():
-                    print(colored('\nSpark-defaults found\n', 'green'))
-                    print(config.value)
-                else:
-                    print(colored('\nSpark-defaults found\n', 'yellow'))
-                    print(colored('Current Value:\n' + config.value + '\n', 'red'))
-                    print(colored('Suggest Value:\n' + suggest_configs['spark-defaults'], 'green', attrs=['reverse']))
+            try:
+                if name == 'spark-conf/spark-defaults.conf_client_config_safety_valve':
+                    print('------------------------------------------------------------------')
+                    if suggest_configs['spark-defaults'] == config.value.strip():
+                        print(colored('\nSpark-defaults found\n', 'green'))
+                        print(config.value)
+                    else:
+                        print(colored('\nSpark-defaults found\n', 'yellow'))
+                        print(colored('Current Value:\n' + config.value + '\n', 'red'))
+                        print(colored('Suggest Value:\n' + suggest_configs['spark-defaults'], 'green', attrs=['reverse']))
+            except:
+                printRed('\nSpark-defaults NOT found\n')
+                print('Suggest Value:\n' + suggest_configs['spark-defaults'])
 
     if spark2_ver:
         s2_groups = []
@@ -251,19 +281,23 @@ def check_cdh_config():
                         print(colored('Current Value:\n' + config.value + '\n', 'red'))
                         print(colored('Suggest Value:\n' + suggest_configs['spark2-defaults'], 'green', attrs=['reverse']))
         except:
-            print(colored('\nSpark2-defaults NOT found\n', 'red'))
+            printRed('\nSpark2-defaults NOT found\n')
+            print('Suggest Value:\n' + suggest_configs['spark2-defaults'])
 
 
 def check_parcels():
     print('------------------------------------------------------------------')
     print('\nChecking Cloudera Manager Parcels Status\n')
+    found_parcel = False
     for parcel in cluster.get_all_parcels():
         if parcel.product == 'UNRAVEL_SENSOR':
+            found_parcel = True
             if cdh_version_short in parcel.version and parcel.stage == 'ACTIVATED':
                 printGreen(parcel.version + ' state: ' + parcel.stage)
             else:
                 printYellow(parcel.version + ' state: ' + parcel.stage)
-
+    if not found_parcel:
+        printRed('Unravel Sensor Parcel not exists')
 
 
 def check_unravel_properties():
@@ -320,7 +354,7 @@ def check_unravel_properties():
                 print('javax.jdo.option.ConnectionPassword not in /usr/local/unravel/etc/unravel.properties')
             print(colored('Suggesst Value:\n' + 'javax.jdo.option.ConnectionPassword='+ hive_password, 'green', attrs=['reverse']))
     except Exception as e:
-        print(e)
+        printRed(e)
         pass
 
 def get_daemone_status():
@@ -347,28 +381,29 @@ def get_daemone_status():
                 print(daemone[0] + ': %s' % message )
     except Exception as e:
         print(e)
-        raise requests.exceptions.ConnectionError('Unable to connect to Unravel host: %s \nCheck Unravel Server Status or /usr/local/unravel/logs for more details' % argv.unravel)
+        printRed('\n[Error]: Couldn\'t connect to Unravel UI')
+        # raise requests.exceptions.ConnectionError('Unable to connect to Unravel host: %s \nCheck Unravel Server Status or /usr/local/unravel/logs for more details' % argv.unravel)
 
 
-def printGreen(print_str, do_print=True):
+def printGreen(print_str, do_print=True, attrs_list=None):
     if do_print:
-        print(colored(print_str, 'green'))
+        print(colored(print_str, 'green', attrs=attrs_list))
     else:
-        return(colored(print_str, 'green'))
+        return(colored(print_str, 'green', attrs=attrs_list))
 
 
-def printYellow(print_str, do_print=True):
+def printYellow(print_str, do_print=True, attrs_list=None):
     if do_print:
-        print(colored(print_str, 'yellow'))
+        print(colored(print_str, 'yellow', attrs=attrs_list))
     else:
-        return(colored(print_str, 'yellow'))
+        return(colored(print_str, 'yellow', attrs=attrs_list))
 
 
-def printRed(print_str, do_print=True):
+def printRed(print_str, do_print=True, attrs_list=None):
     if do_print:
-        print(colored(print_str, 'red'))
+        print(colored(print_str, 'red', attrs=attrs_list))
     else:
-        return(colored(print_str, 'red'))
+        return(colored(print_str, 'red', attrs=attrs_list))
 
 
 def main():
