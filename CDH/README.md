@@ -9,12 +9,12 @@ required arguments:
   --spark-version SPARK_VER
                         spark version e.g. 1.6 or 2.2
   --cm_host CM_HOSTNAME
-                        hostname of CM Server, default is local host
+                        hostname/IP of Cloudera Manager Server
 
 optional arguments:
 
   --unravel-host UNRAVEL
-                        Unravel Server hostname or IP address
+                        Unravel Server hostname or IP address, default: local hostname
   -user USER, --user USER
                         CM Username, default: admin
   -pass PASSWORD, --password PASSWORD
