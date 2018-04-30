@@ -13,6 +13,7 @@ except:
     call(['sudo', 'pip', 'install', 'requests'])
 import re
 import os
+import pwd
 import json
 import argparse
 import requests
@@ -275,7 +276,20 @@ def check_unravel_properties():
                                                         db_name=hive_config['hive_metastore_database_name'])
     hive_password = hive_config['hive_metastore_database_password']
     try:
-        with open('/usr/local/unravel/etc/unravel.properties', 'r') as file:
+        file_path ='/usr/local/unravel/etc/unravel.properties'
+        file_stat = os.stat(file_path)
+        file_owner = pwd.getpwuid(file_stat.st_uid).pw_name
+
+        #Unravel Folder Owner
+        print('------------------------------------------------------------------')
+        print('Unravel Folder Owner\n')
+        if file_owner == 'hdfs':
+            printGreen(file_owner)
+        else:
+            printYellow(file_owner)
+            printYellow('Unravel Folder Owner is not hdfs please run switch_to_user script')
+
+        with open(file_path, 'r') as file:
             unravel_properties = file.read()
             file.close()
 
