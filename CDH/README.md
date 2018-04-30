@@ -40,6 +40,11 @@ optional arguments:
     * Hive Metastore properties
 * Daemone status and error/fatal messages from Unravel UI
 
+#### packages used (install them manually if getting import error):
+- pip
+- cm-api
+- termcolor
+- requests
 
 #### sample output:
 ![img1](screenshot/20180428-201238.png)
