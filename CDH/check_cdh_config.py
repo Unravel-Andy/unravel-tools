@@ -29,15 +29,26 @@ parser.add_argument("-uuser", "--unravel_username", help="Unravel UI Username", 
 parser.add_argument("-upass", "--unravel_password", help="Unravel UI Password", default='unraveldata')
 argv = parser.parse_args()
 
-if argv.cm_hostname:
-    hostname = argv.cm_hostname
-else:
-    hostname = Popen(['hostname'], stdout=PIPE).communicate()[0].strip()
+if not argv.cm_hostname:
+    argv.cm_hostname = Popen(['hostname'], stdout=PIPE).communicate()[0].strip()
 
 if not argv.unravel:
     argv.unravel = Popen(['hostname'], stdout=PIPE).communicate()[0].strip()
+    unravel_ip = Popen(['host', argv.unravel], stdout=PIPE).communicate()[0].strip()
+else:
+    if re.match('[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}',argv.unravel):
+        unravel_ip = argv.unravel
+        try:
+            unravel_hostname = Popen(['host', argv.unravel], stdout=PIPE).communicate()[0].strip().split('domain name pointer ')
+            argv.unravel = unravel_hostname[1][:-1]
+        except:
+            pass
+    else:
+        unravel_ip = re.search('[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}',
+                                          Popen(['host', argv.unravel], stdout=PIPE).communicate()[0].strip()).group(0)
 
 print("Unravel Hostname: %s\n" % argv.unravel)
+print("Unravel IP: %s\n" % unravel_ip)
 
 if re.search('1.[0-9]', argv.spark_ver):
     spark_ver = re.search('1.[0-9]', argv.spark_ver).group(0)
@@ -111,12 +122,13 @@ cm_username = argv.user
 cm_pass = argv.password
 
 web_api = requests.Session()
-res = web_api.post("http://%s:7180/j_spring_security_check" % hostname, data={'j_username':cm_username,'j_password':cm_pass})
+res = web_api.post("http://%s:7180/j_spring_security_check" % argv.cm_hostname, data={'j_username':cm_username,'j_password':cm_pass})
 suggest_configs = generate_configs(argv.unravel)
+suggest_configs_ip = generate_configs(unravel_ip)
 
-cdh_info = web_api.get("http://%s:7180/api/v11/clusters/" % hostname)
+cdh_info = web_api.get("http://%s:7180/api/v11/clusters/" % argv.cm_hostname)
 cdh_version = json.loads(cdh_info.text)['items'][0]['fullVersion'].split('.')
-resource = ApiResource(hostname, 7180, cm_username, cm_pass, version=11)
+resource = ApiResource(argv.cm_hostname, 7180, cm_username, cm_pass, version=11)
 cluster_name = json.loads(cdh_info.text)['items'][0]['displayName']
 cdh_version_short = '%s.%s' % (cdh_version[0], cdh_version[1])
 
@@ -147,7 +159,7 @@ def check_cdh_config():
             try:
                 if name == 'hive_client_env_safety_valve':
                     print('------------------------------------------------------------------')
-                    if suggest_configs['hive-env'] == config.value.strip():
+                    if suggest_configs['hive-env'] == config.value.strip() or suggest_configs_ip['hive-env'] == config.value.strip():
                         print(colored('\nGateway Client Environment Advanced Configuration Snippet (Safety Valve) for hive-env.sh found\n', 'green'))
                         print(config.value)
                     else:
@@ -161,7 +173,7 @@ def check_cdh_config():
             try:
                 if name == 'hive_client_config_safety_valve':
                     print('------------------------------------------------------------------')
-                    if  argv.unravel in config.value:
+                    if  argv.unravel in config.value or unravel_ip in config.value:
                         print (colored('\nHive Client Advanced Configuration Snippet (Safety Valve) for hive-site.xml found\n', 'green'))
                         # print(name,hive_site_snip)
                         print(config.value)
@@ -177,7 +189,7 @@ def check_cdh_config():
             try:
                 if name == 'hive_hs2_config_safety_valve':
                     print('------------------------------------------------------------------')
-                    if argv.unravel in config.value:
+                    if argv.unravel in config.value or unravel_ip in config.value:
                         print(colored('\nFound hive server 2 found\n', 'green'))
                         print(config.value)
                     else:
@@ -198,7 +210,7 @@ def check_cdh_config():
         try:
             if name == 'mapreduce_client_env_safety_valve':
                 print('------------------------------------------------------------------')
-                if suggest_configs['hadoop-env'] == config.value.strip():
+                if suggest_configs['hadoop-env'] == config.value.strip() or suggest_configs_ip['hadoop-env'] == config.value.strip():
                     print(colored('\nYarn Hook ENV found (hadoop-env)\n', 'green'))
                     print(config.value)
                 else:
@@ -213,7 +225,7 @@ def check_cdh_config():
         try:
             if name == 'mapreduce_client_config_safety_valve':
                 print('------------------------------------------------------------------')
-                if suggest_configs['mapred-site'].replace('\n','') == config.value.strip().replace('\n',''):
+                if suggest_configs['mapred-site'].replace('\n','') == config.value.strip().replace('\n','') or suggest_configs_ip['mapred-site'].replace('\n','') == config.value.strip().replace('\n',''):
                     print(colored('\nMapReduce Client Config for mapred-site.xml\n', 'green'))
                     print(config.value)
                 else:
@@ -228,7 +240,7 @@ def check_cdh_config():
         try:
             if name == 'yarn_app_mapreduce_am_command_opts':
                 print('------------------------------------------------------------------')
-                if suggest_configs['yarn-am'] == config.value:
+                if suggest_configs['yarn-am'] == config.value or suggest_configs_ip['yarn-am'] == config.value:
                     print(colored('\nFound Yarn Mapreduce AM command\n', 'green'))
                     print(config.value)
                 else:
@@ -251,7 +263,7 @@ def check_cdh_config():
             try:
                 if name == 'spark-conf/spark-defaults.conf_client_config_safety_valve':
                     print('------------------------------------------------------------------')
-                    if suggest_configs['spark-defaults'] == config.value.strip():
+                    if suggest_configs['spark-defaults'] == config.value.strip() or suggest_configs_ip['spark-defaults'] == config.value.strip():
                         print(colored('\nSpark-defaults found\n', 'green'))
                         print(config.value)
                     else:
@@ -273,7 +285,7 @@ def check_cdh_config():
                 # Spark Client Advanced Configuration Snippet (Safety Valve) for spark-conf/spark-defaults.conf
                 if name == 'spark2-conf/spark-defaults.conf_client_config_safety_valve':
                     print('------------------------------------------------------------------')
-                    if suggest_configs['spark2-defaults'] == config.value.strip().replace(' ',''):
+                    if suggest_configs['spark2-defaults'] == config.value.strip().replace(' ','') or suggest_configs_ip['spark2-defaults'] == config.value.strip().replace(' ',''):
                         print(colored('\nSpark2-defaults found\n', 'green'))
                         print(config.value)
                     else:
