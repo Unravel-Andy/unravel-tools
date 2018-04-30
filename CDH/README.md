@@ -37,7 +37,7 @@ optional arguments:
     * Unravel Sensor parcel state
 * /usr/local/unravel owner and group
 * unravel.properties file
-    * Hive Metasotore properties
+    * Hive Metastore properties
 * Daemone status and error/fatal messages from Unravel UI
 
 
