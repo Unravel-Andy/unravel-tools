@@ -263,7 +263,7 @@ def check_cdh_config():
             try:
                 if name == 'spark-conf/spark-defaults.conf_client_config_safety_valve':
                     print('------------------------------------------------------------------')
-                    if suggest_configs['spark-defaults'] == config.value.strip().replace('\n','') or suggest_configs_ip['spark-defaults'] == config.value.strip().replace('\n',''):
+                    if suggest_configs['spark-defaults'] == config.value.strip() or suggest_configs_ip['spark-defaults'] == config.value.strip():
                         print(colored('\nSpark-defaults found\n', 'green'))
                         print(config.value)
                     else:
@@ -285,7 +285,7 @@ def check_cdh_config():
                 # Spark Client Advanced Configuration Snippet (Safety Valve) for spark-conf/spark-defaults.conf
                 if name == 'spark2-conf/spark-defaults.conf_client_config_safety_valve':
                     print('------------------------------------------------------------------')
-                    if suggest_configs['spark2-defaults'] == config.value.strip().replace(' ','').replace('\n','') or suggest_configs_ip['spark2-defaults'] == config.value.strip().replace(' ','').replace('\n',''):
+                    if suggest_configs['spark2-defaults'] == config.value.strip().replace(' ','') or suggest_configs_ip['spark2-defaults'] == config.value.strip().replace(' ',''):
                         print(colored('\nSpark2-defaults found\n', 'green'))
                         print(config.value)
                     else:
