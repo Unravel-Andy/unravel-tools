@@ -263,7 +263,7 @@ def check_cdh_config():
             try:
                 if name == 'spark-conf/spark-defaults.conf_client_config_safety_valve':
                     print('------------------------------------------------------------------')
-                    if suggest_configs['spark-defaults'] == config.value.strip() or suggest_configs_ip['spark-defaults'] == config.value.strip():
+                    if suggest_configs['spark-defaults'] == config.value.strip().replace('\n','') or suggest_configs_ip['spark-defaults'] == config.value.strip().replace('\n',''):
                         print(colored('\nSpark-defaults found\n', 'green'))
                         print(config.value)
                     else:
@@ -285,7 +285,7 @@ def check_cdh_config():
                 # Spark Client Advanced Configuration Snippet (Safety Valve) for spark-conf/spark-defaults.conf
                 if name == 'spark2-conf/spark-defaults.conf_client_config_safety_valve':
                     print('------------------------------------------------------------------')
-                    if suggest_configs['spark2-defaults'] == config.value.strip().replace(' ','') or suggest_configs_ip['spark2-defaults'] == config.value.strip().replace(' ',''):
+                    if suggest_configs['spark2-defaults'] == config.value.strip().replace(' ','').replace('\n','') or suggest_configs_ip['spark2-defaults'] == config.value.strip().replace(' ','').replace('\n',''):
                         print(colored('\nSpark2-defaults found\n', 'green'))
                         print(config.value)
                     else:
@@ -369,31 +369,32 @@ def check_unravel_properties():
         printRed(e)
         pass
 
-def get_daemone_status():
+def get_daemon_status():
     unravel_base_url = 'http://%s:3000/api/v1/' % argv.unravel
     print('------------------------------------------------------------------')
     print('\nChecking Unravel Daemon Status\n')
     try:
         login_token = json.loads(requests.post(unravel_base_url + 'signIn', data={"username": argv.unravel_username,
                                                                                   "password": argv.unravel_password}).text)['token']
+        print('Unravel Sigin Token: %s\n' % login_token)
 
-        daemone_status = json.loads(requests.get(unravel_base_url + 'manage/daemons_status',
+        daemon_status = json.loads(requests.get(unravel_base_url + 'manage/daemons_status',
                                                  headers = {'Authorization': 'JWT %s' % login_token}).text)
 
-        print('Unravel Sigin Token: %s\n' % login_token)
-        for daemone in daemone_status.iteritems():
-            if len(daemone[1]['errorMessages']) == 0 and len(daemone[1]['fatalMessages']) == 0:
-                print(colored(daemone[0], 'green'))
+
+        for daemon in daemon_status.iteritems():
+            if len(daemon[1]['errorMessages']) == 0 and len(daemon[1]['fatalMessages']) == 0:
+                print(colored(daemon[0], 'green'))
             else:
                 message = ''
-                if daemone[1]['errorMessages']:
-                    message += printYellow(daemone[1]['errorMessages'][0]['msg'], do_print=False)
-                if daemone[1]['fatalMessages']:
-                    message += printRed(daemone[1]['fatalMessages'][0]['msg'], do_print=False)
-                print(daemone[0] + ': %s' % message )
+                if daemon[1]['errorMessages']:
+                    message += printYellow(daemon[1]['errorMessages'][0]['msg'], do_print=False)
+                if daemon[1]['fatalMessages']:
+                    message += printRed(daemon[1]['fatalMessages'][0]['msg'], do_print=False)
+                print(daemon[0] + ': %s' % message )
     except Exception as e:
         print(e)
-        printRed('\n[Error]: Couldn\'t connect to Unravel UI')
+        printRed('\n[Error]: Couldn\'t connect to Unravel Daemons UI')
         # raise requests.exceptions.ConnectionError('Unable to connect to Unravel host: %s \nCheck Unravel Server Status or /usr/local/unravel/logs for more details' % argv.unravel)
 
 
@@ -422,7 +423,7 @@ def main():
     check_cdh_config()
     check_parcels()
     check_unravel_properties()
-    get_daemone_status()
+    get_daemon_status()
 
 if __name__ == '__main__':
     main()
