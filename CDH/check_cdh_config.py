@@ -394,7 +394,7 @@ def get_daemon_status():
                 print(daemon[0] + ': %s' % message )
     except Exception as e:
         print(e)
-        printRed('\n[Error]: Couldn\'t connect to Unravel Daemons UI')
+        printRed('\n[Error]: Couldn\'t connect to Unravel Daemons UI\nPlease Check /usr/local/unravel/logs/ and /var/log/ for unravel_*.log')
         # raise requests.exceptions.ConnectionError('Unable to connect to Unravel host: %s \nCheck Unravel Server Status or /usr/local/unravel/logs for more details' % argv.unravel)
 
 
