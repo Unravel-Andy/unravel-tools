@@ -1,10 +1,11 @@
 #!/usr/bin/python
-# v1.0.0
+# v1.0.1
 import re
 import os
 import pwd
 import json
 import argparse
+from subprocess import call, Popen, PIPE
 try:
     from termcolor import colored
     import requests
@@ -13,7 +14,7 @@ except:
     call(['sudo', 'yum' , '-y', 'install', 'python-pip'])
     call(['sudo', 'pip', 'install', 'termcolor'])
     call(['sudo', 'pip', 'install', 'requests'])
-from subprocess import call, Popen, PIPE
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--spark-version", help="spark version e.g. 1.6 or 2.1", required=True, dest='spark_ver')
@@ -263,13 +264,13 @@ def check_unravel_properties():
         elif re.search('2.[0-9]', argv.spark_ver):
             spark_default = get_config('spark2-defaults')
         print('------------------------------------------------------------------')
-        if spark_default['spark.eventLog.dir'] in unravel_properties:
-            print(colored('com.unraveldata.spark.eventlog.location Correct', 'green'))
-            printGreen(re.search('com.unraveldata.spark.eventlog.location=.*?\n', spark_default['spark.eventLog.dir']).group(0))
+        if re.search('com.unraveldata.spark.eventlog.location=.*?\n', unravel_properties) and spark_default['spark.eventLog.dir'] in re.findall('com.unraveldata.spark.eventlog.location=.*?\n', unravel_properties)[-1]:
+            print(colored('com.unraveldata.spark.eventlog.location Correct\n', 'green'))
+            printGreen('com.unraveldata.spark.eventlog.location=' + spark_default['spark.eventLog.dir'])
         else:
             print(colored('com.unraveldata.spark.eventlog.location Wrong', 'yellow'))
             try:
-                print(colored('Current Value:\n' + re.search('com.unraveldata.spark.eventlog.location=.*?\n', unravel_properties).group(0), 'red'))
+                print(colored('Current Value:\n' + re.findall('com.unraveldata.spark.eventlog.location=.*?\n', unravel_properties)[-1], 'red'))
             except:
                 print('com.unraveldata.spark.eventlog.location not in /usr/local/unravel/etc/unravel.properties')
             print(colored('Suggesst Value:\n' + 'com.unraveldata.spark.eventlog.location=' + spark_default['spark.eventLog.dir'], 'green', attrs=['reverse']))

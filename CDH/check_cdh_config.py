@@ -342,7 +342,7 @@ def check_unravel_properties():
 
         #javax.jdo.option.ConnectionURL
         print('------------------------------------------------------------------')
-        if re.match('javax.jdo.option.ConnectionURL=.*?\n',unravel_properties) and hive_connection in re.findall('javax.jdo.option.ConnectionURL=.*?\n', unravel_properties)[-1]:
+        if re.search('javax.jdo.option.ConnectionURL=.*?\n',unravel_properties) and hive_connection in re.findall('javax.jdo.option.ConnectionURL=.*?\n', unravel_properties)[-1]:
             print(colored('javax.jdo.option.ConnectionURL Correct', 'green'))
             print(re.findall('javax.jdo.option.ConnectionURL=.*?\n',unravel_properties)[-1])
         else:
@@ -356,7 +356,7 @@ def check_unravel_properties():
 
         #javax.jdo.option.ConnectionPassword
         print('------------------------------------------------------------------')
-        if re.match('javax.jdo.option.ConnectionPassword=.*?\n', unravel_properties) and hive_password in re.findall('javax.jdo.option.ConnectionPassword=.*?\n', unravel_properties)[-1]:
+        if re.search('javax.jdo.option.ConnectionPassword=.*?\n', unravel_properties) and hive_password in re.findall('javax.jdo.option.ConnectionPassword=.*?\n', unravel_properties)[-1]:
             print(colored('javax.jdo.option.ConnectionPassword', 'green'))
             print(re.findall('javax.jdo.option.ConnectionPassword=.*?\n',unravel_properties)[-1])
         else:
