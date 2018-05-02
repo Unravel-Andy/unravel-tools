@@ -5,8 +5,14 @@ import os
 import pwd
 import json
 import argparse
-from termcolor import colored
-import requests
+try:
+    from termcolor import colored
+    import requests
+except:
+    call(['sudo', 'yum' , '-y', '--enablerepo=extras', 'install', 'epel-release'])
+    call(['sudo', 'yum' , '-y', 'install', 'python-pip'])
+    call(['sudo', 'pip', 'install', 'termcolor'])
+    call(['sudo', 'pip', 'install', 'requests'])
 from subprocess import call, Popen, PIPE
 
 parser = argparse.ArgumentParser()

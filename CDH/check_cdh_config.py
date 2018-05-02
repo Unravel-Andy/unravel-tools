@@ -342,13 +342,13 @@ def check_unravel_properties():
 
         #javax.jdo.option.ConnectionURL
         print('------------------------------------------------------------------')
-        if hive_connection in unravel_properties:
+        if re.match('javax.jdo.option.ConnectionURL=.*?\n',unravel_properties) and hive_connection in re.findall('javax.jdo.option.ConnectionURL=.*?\n', unravel_properties)[-1]:
             print(colored('javax.jdo.option.ConnectionURL Correct', 'green'))
-            print(re.search('javax.jdo.option.ConnectionURL=.*?\n',unravel_properties).group(0))
+            print(re.findall('javax.jdo.option.ConnectionURL=.*?\n',unravel_properties)[-1])
         else:
             print(colored('javax.jdo.option.ConnectionURL Wrong', 'yellow'))
             try:
-                print(colored('Current Value:\n' + re.search('javax.jdo.option.ConnectionURL=.*?\n',unravel_properties).group(0), 'red'))
+                print(colored('Current Value:\n' + re.findall('javax.jdo.option.ConnectionURL=.*?\n',unravel_properties)[-1], 'red'))
             except:
                 print('javax.jdo.option.ConnectionURL not in /usr/local/unravel/etc/unravel.properties')
             print(colored('Suggesst Value:\n' + 'javax.jdo.option.ConnectionURL=' + hive_connection, 'green', attrs=['reverse']))
@@ -356,13 +356,13 @@ def check_unravel_properties():
 
         #javax.jdo.option.ConnectionPassword
         print('------------------------------------------------------------------')
-        if hive_password in unravel_properties:
+        if re.match('javax.jdo.option.ConnectionPassword=.*?\n', unravel_properties) and hive_password in re.findall('javax.jdo.option.ConnectionPassword=.*?\n', unravel_properties)[-1]:
             print(colored('javax.jdo.option.ConnectionPassword', 'green'))
-            print(re.search('javax.jdo.option.ConnectionPassword=.*?\n',unravel_properties).group(0))
+            print(re.findall('javax.jdo.option.ConnectionPassword=.*?\n',unravel_properties)[-1])
         else:
             print(colored('javax.jdo.option.ConnectionPassword Wrong', 'yellow'))
             try:
-                print(colored('Current Value:\n' + re.search('javax.jdo.option.ConnectionPassword=.*?\n',unravel_properties).group(0), 'red'))
+                print(colored('Current Value:\n' + re.findall('javax.jdo.option.ConnectionPassword=.*?\n',unravel_properties)[-1], 'red'))
             except:
                 print('javax.jdo.option.ConnectionPassword not in /usr/local/unravel/etc/unravel.properties')
             print(colored('Suggesst Value:\n' + 'javax.jdo.option.ConnectionPassword='+ hive_password, 'green', attrs=['reverse']))
