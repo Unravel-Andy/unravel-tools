@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.0.0
+# v1.0.1
 from subprocess import call, Popen, PIPE
 try:
     from cm_api.api_client import ApiResource
