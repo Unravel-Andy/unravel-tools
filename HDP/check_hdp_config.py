@@ -1,3 +1,5 @@
+#!/usr/bin/python
+# v1.0.0
 import re
 import os
 import pwd
