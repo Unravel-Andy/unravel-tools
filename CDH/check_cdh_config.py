@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.0.1
+# v1.0.2
 from subprocess import call, Popen, PIPE
 try:
     from cm_api.api_client import ApiResource
@@ -342,9 +342,9 @@ def check_unravel_properties():
 
         #javax.jdo.option.ConnectionURL
         print('------------------------------------------------------------------')
-        if re.search('javax.jdo.option.ConnectionURL=.*?\n',unravel_properties) and hive_connection in re.findall('javax.jdo.option.ConnectionURL=.*?\n', unravel_properties)[-1]:
+        if hive_connection in unravel_properties:
             print(colored('javax.jdo.option.ConnectionURL Correct', 'green'))
-            print(re.findall('javax.jdo.option.ConnectionURL=.*?\n',unravel_properties)[-1])
+            print('javax.jdo.option.ConnectionURL=' + hive_connection)
         else:
             print(colored('javax.jdo.option.ConnectionURL Wrong', 'yellow'))
             try:
@@ -356,9 +356,9 @@ def check_unravel_properties():
 
         #javax.jdo.option.ConnectionPassword
         print('------------------------------------------------------------------')
-        if re.search('javax.jdo.option.ConnectionPassword=.*?\n', unravel_properties) and hive_password in re.findall('javax.jdo.option.ConnectionPassword=.*?\n', unravel_properties)[-1]:
+        if hive_password in unravel_properties:
             print(colored('javax.jdo.option.ConnectionPassword', 'green'))
-            print(re.findall('javax.jdo.option.ConnectionPassword=.*?\n',unravel_properties)[-1])
+            print('javax.jdo.option.ConnectionPassword=' + hive_password)
         else:
             print(colored('javax.jdo.option.ConnectionPassword Wrong', 'yellow'))
             try:
@@ -369,6 +369,7 @@ def check_unravel_properties():
     except Exception as e:
         printRed(e)
         pass
+
 
 def get_daemon_status():
     unravel_base_url = 'http://%s:3000/api/v1/' % argv.unravel
@@ -396,7 +397,7 @@ def get_daemon_status():
     except Exception as e:
         print(e)
         if requests.get(unravel_base_url + 'clusters').status_code == 200:
-            printRed('\nCheck Unravel Login credentials')
+            printRed('\nAble to connect to UI but unable to get Daemon Status Please Check Unravel Login credentials or try again')
         else:
             printRed('\n[Error]: Couldn\'t connect to Unravel Daemons UI\nPlease Check /usr/local/unravel/logs/ and /var/log/ for unravel_*.log')
         # raise requests.exceptions.ConnectionError('Unable to connect to Unravel host: %s \nCheck Unravel Server Status or /usr/local/unravel/logs for more details' % argv.unravel)
