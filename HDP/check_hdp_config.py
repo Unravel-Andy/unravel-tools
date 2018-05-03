@@ -22,7 +22,7 @@ except:
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--spark-version", help="spark version e.g. 1.6 or 2.1", required=True, dest='spark_ver')
-parser.add_argument("--hive-version", help="hive version e.g. 1.2", dest='hive_ver', required=True)
+parser.add_argument("--hive-version", help="hive version e.g. 1.2", dest='hive_ver')
 parser.add_argument("--am_host", help="Ambari Server hostname")
 parser.add_argument("-user","--username", help="Ambari Login username, default is admin", default='admin')
 parser.add_argument("-pass", "--password", help="Ambari Login password, default is admin", default='admin')
@@ -57,8 +57,9 @@ else:
                                           Popen(['host', argv.unravel], stdout=PIPE).communicate()[0].strip()).group(0)
 print('Unravel Hostname: ' + argv.unravel)
 print('Unravel Host IP: ' + unravel_ip)
+
 if not argv.hive_ver:
-    argv.hive_ver = Popen('$(which hive) --version 2>/dev/null | grep -Po \'Hive \K([0-9]+\.[0-9]+\.[0-9]+)\'', shell=True, stdout=PIPE).communicate()[0].strip()
+    argv.hive_ver = Popen('$(which hive) --version 2>/dev/null | grep -Po \'Hive \K([0-9]+\.[0-9]+\.[0-9]+)\'', shell=True, stdout=PIPE).communicate()[0].strip().split('.')
 argv.hive_ver = argv.hive_ver.split('.')
 
 session = requests.Session()
