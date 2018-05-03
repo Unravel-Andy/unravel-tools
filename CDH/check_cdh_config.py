@@ -40,9 +40,13 @@ else:
     if re.match('[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}',argv.unravel):
         unravel_ip = argv.unravel
         try:
-            unravel_hostname = Popen(['host', argv.unravel], stdout=PIPE).communicate()[0].strip().split('domain name pointer ')
-            argv.unravel = unravel_hostname[1][:-1]
+            if not 'not found' in Popen(['host', argv.unravel], stdout=PIPE).communicate()[0].strip().split('domain name pointer '):
+                unravel_hostname = Popen(['host', argv.unravel], stdout=PIPE).communicate()[0].strip().split('domain name pointer ')
+                argv.unravel = unravel_hostname[1][:-1]
+            else:
+                unravel_hostname = unravel_ip
         except:
+            unravel_hostname = unravel_ip
             pass
     else:
         unravel_ip = re.search('[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}',
