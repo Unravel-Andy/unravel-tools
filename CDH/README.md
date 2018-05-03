@@ -1,6 +1,6 @@
 ## check_cdh_config.py
 
-#### sample usage:
+#### sample usage(run on unravel node):
 `./check_cdh_config.py --spark-version 1.6,2.2 --cm_host congo21.unraveldata.com --unravel-host congo24.unraveldata.com`
 
 ```
