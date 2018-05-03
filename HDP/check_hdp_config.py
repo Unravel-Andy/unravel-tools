@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.0.1
+# v1.0.3
 import re
 import os
 import pwd
@@ -9,22 +9,29 @@ from subprocess import call, Popen, PIPE
 try:
     from termcolor import colored
     import requests
+    import paramiko
 except:
     call(['sudo', 'yum' , '-y', '--enablerepo=extras', 'install', 'epel-release'])
     call(['sudo', 'yum' , '-y', 'install', 'python-pip'])
     call(['sudo', 'pip', 'install', 'termcolor'])
     call(['sudo', 'pip', 'install', 'requests'])
-
+    call(['sudo', 'pip', 'install', 'paramiko'])
+    from termcolor import colored
+    import requests
+    import paramiko
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--spark-version", help="spark version e.g. 1.6 or 2.1", required=True, dest='spark_ver')
 parser.add_argument("--hive-version", help="hive version e.g. 1.2", dest='hive_ver', required=True)
-parser.add_argument("--am_host", help="hostname of Ambari Server, default is current host")
-parser.add_argument("--username", help="Ambari Log in username, default is admin", default='admin')
-parser.add_argument("--password", help="Ambari Log in password, default is admin", default='admin')
+parser.add_argument("--am_host", help="Ambari Server hostname")
+parser.add_argument("-user","--username", help="Ambari Login username, default is admin", default='admin')
+parser.add_argument("-pass", "--password", help="Ambari Login password, default is admin", default='admin')
 parser.add_argument("--unravel-host", help="Unravel Server hostname", dest='unravel')
-parser.add_argument("-uuser", "--unravel_username", help="SSH Login for Unravel Host, default use localhost", default='admin')
-parser.add_argument("-upass", "--unravel_password", help="SSH password for Unravel Host, default is local no password", default='unraveldata')
+parser.add_argument("-uuser", "--unravel_username", help="Login for Unravel UI, default is admin", default='admin')
+parser.add_argument("-upass", "--unravel_password", help="Login password for Unravel UI, default is unraveldata", default='unraveldata')
+parser.add_argument("--ssh_user", help="SSH username for all Cluster Host")
+parser.add_argument("--ssh_password", help="SSH password for all Cluster Host")
+parser.add_argument("--ssh_key", help="SSH key full path for all Cluster Host")
 argv = parser.parse_args()
 
 if not argv.am_host:
@@ -37,9 +44,13 @@ else:
     if re.match('[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}',argv.unravel):
         unravel_ip = argv.unravel
         try:
-            unravel_hostname = Popen(['host', argv.unravel], stdout=PIPE).communicate()[0].strip().split('domain name pointer ')
-            argv.unravel = unravel_hostname[1][:-1]
+            if not 'not found' in Popen(['host', argv.unravel], stdout=PIPE).communicate()[0].strip():
+                unravel_hostname = Popen(['host', argv.unravel], stdout=PIPE).communicate()[0].strip().split('domain name pointer ')
+                argv.unravel = unravel_hostname[1][:-1]
+            else:
+                unravel_hostname = unravel_ip
         except:
+            unravel_hostname = unravel_ip
             pass
     else:
         unravel_ip = re.search('[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}',
@@ -52,6 +63,7 @@ argv.hive_ver = argv.hive_ver.split('.')
 
 session = requests.Session()
 session.auth = (argv.username, argv.password)
+
 
 def check_hdp_config():
     # configuration with hostname
@@ -83,7 +95,7 @@ def check_hdp_config():
             print(unravel_configs['hadoop-env'])
         else:
             printRed('HADOOP_CLASSPATH is NOT in hadoop-env')
-            printYellow('Please add the following line in hive-env: \n%s' % unravel_configs['hadoop-env'])
+            printYellow('Please add the following line in hadoop-env: \n%s' % unravel_configs['hadoop-env'])
     except Exception as e:
         printRed(e)
 
@@ -94,9 +106,9 @@ def check_hdp_config():
         hive_site = get_config('hive-site')
         for config, val in unravel_configs['hive-site'].iteritems():
             if val in hive_site.get(config, '') or unravel_configs_ip['hive-site'][config] in hive_site.get(config, ''):
-                printGreen(config + ': ' + hive_site[config])
+                print(config + ': ' + printGreen(hive_site[config], do_print=False))
             else:
-                printYellow(config + ': \nCurrent Value: ' + hive_site.get(config, ''))
+                print(config + ': ' + printYellow('\nCurrent Value: ' + hive_site.get(config, ''), do_print=False))
                 printYellow('Suggest Value: ' + val)
     except Exception as e:
         printRed(e)
@@ -108,10 +120,10 @@ def check_hdp_config():
         mapred_site = get_config('mapred-site')
         for config, val in unravel_configs['mapred-site'].iteritems():
             if val in mapred_site.get(config, '') or unravel_configs_ip['mapred-site'][config] in mapred_site.get(config, ''):
-                printGreen(config + ': ' + mapred_site[config])
+                print(config + ': ' + printGreen(mapred_site[config], do_print=False))
             else:
-                printYellow(config + ': \nCurrent Value: ' + mapred_site.get(config, ''))
-                printYellow('Suggest Value: {current_val} {suggest_val}'.format(current_val=mapred_site.get(config, ''), suggest_val=val))
+                print(config + ': ' + printYellow('\nCurrent Value: ' + mapred_site.get(config, ''), do_print=False))
+                printYellow('Suggest Value: {suggest_val}'.format(suggest_val=val))
     except Exception as e:
         printRed(e)
 
@@ -124,10 +136,10 @@ def check_hdp_config():
             spark_defaults = get_config('spark-defaults')
             for config, val in unravel_configs['spark-defaults'].iteritems():
                 if val in spark_defaults.get(config, '') or unravel_configs_ip['spark-defaults'][config] in spark_defaults.get(config, ''):
-                    printGreen(config + ': ' + spark_defaults[config])
+                    print(config + ': ' + printGreen(spark_defaults[config], do_print=False))
                 else:
-                    printYellow(config + ': \nCurrent Value: ' + spark_defaults.get(config, ''))
-                    printYellow('Suggest Value: {current_val} {suggest_val}'.format(current_val=spark_defaults.get(config, ''), suggest_val=val))
+                    print(config + ': ' + printYellow('\nCurrent Value: ' + spark_defaults.get(config, ''), do_print=False))
+                    printYellow('Suggest Value: {suggest_val}'.format(suggest_val=val))
         except Exception as e:
             printRed(e)
             printRed('Spark-defaults NOT found')
@@ -140,11 +152,11 @@ def check_hdp_config():
             spark2_ver = re.search('2.[0-9]', argv.spark_ver).group(0)
             spark2_defaults = get_config('spark2-defaults')
             for config, val in unravel_configs['spark2-defaults'].iteritems():
-                if val in spark2_defaults.get(config, '') or unravel_configs_ip['spark-defaults'][config] in spark2_defaults.get(config, ''):
-                    printGreen(config + ': ' + spark2_defaults[config])
+                if val in spark2_defaults.get(config, '') or unravel_configs_ip['spark2-defaults'][config] in spark2_defaults.get(config, ''):
+                    print(config + ': ' + printGreen(spark2_defaults[config], do_print=False))
                 else:
-                    printYellow(config + ': \nCurrent Value: ' + spark2_defaults.get(config, ''))
-                    printYellow('Suggest Value: {current_val} {suggest_val}'.format(current_val=spark2_defaults.get(config, ''), suggest_val=val))
+                    print(config + ': ' + printYellow('\nCurrent Value: ' + spark2_defaults.get(config, ''), do_print=False))
+                    printYellow('Suggest Value: {suggest_val}'.format(suggest_val=val))
         except Exception as e:
             printRed(e)
             printRed('Spark2-defaults NOT found')
@@ -159,12 +171,54 @@ def check_hdp_config():
                 printGreen(config + ': ' + tez_site[config])
             else:
                 printYellow(config + ': \nCurrent Value: ' + tez_site.get(config, ''))
-                printYellow('Suggest Value: {current_val} {suggest_val}'.format(current_val=tez_site.get(config, ''), suggest_val=val))
+                printYellow('Suggest Value: {suggest_val}'.format(suggest_val=val))
     except Exception as e:
         printRed(e)
         printRed('Tez site NOT found')
 
 
+def check_unravel_sensor():
+    print('------------------------------------------------------------------')
+    print('\nChecking Unravel Sensor\n')
+    if argv.ssh_user and (argv.ssh_password or argv.ssh_key):
+        hosts_list = get_hosts_list()
+        for host in hosts_list:
+            print('\n' + host)
+            try:
+                ssh_client = paramiko.SSHClient()
+                ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                if argv.ssh_key:
+                    if argv.ssh_password:
+                        private_key = paramiko.RSAKey.from_private_key_file(argv.ssh_key, password=argv.ssh_password)
+                    else:
+                        private_key = paramiko.RSAKey.from_private_key_file(argv.ssh_key)
+                    ssh_client.connect(host, username=argv.ssh_user, pkey=private_key)
+                elif argv.ssh_password:
+                    ssh_client.connect(host, username=argv.ssh_user, password=argv.ssh_password)
+                # check /usr/local/unravel_client
+                stdin, stdout, stderr = ssh_client.exec_command('if [ -d /usr/local/unravel_client ]; then echo "true"; fi')
+                if stdout.read() == 'true\n':
+                    printGreen('unravel_client found')
+                else:
+                    printYellow('unravel_client NOT found')
+                # check /usr/local/unravel-agent
+                stdin, stdout, stderr = ssh_client.exec_command('if [ -d /usr/local/unravel-agent ]; then echo "true"; fi')
+                if stdout.read() == 'true\n':
+                    printGreen('unravel-agent found')
+                else:
+                    printYellow('unravel-agent NOT found')
+                ssh_client.close()
+            except Exception as e:
+                printYellow(e)
+    else:
+        printYellow('No ssh credentials provided skip unravel sensor check')
+
+
+##########################################################################################
+#   All Unravel HDP Configurations are in here
+#   - Input: unravel hostname or IP address
+#   - Output: dictoinary of all the config
+##########################################################################################
 def generate_configs(unravel_host):
     configs = {}
     configs['hive-env'] = 'export AUX_CLASSPATH=${AUX_CLASSPATH}:/usr/local/unravel_client/unravel-hive-%s.%s.0-hook.jar' % (argv.hive_ver[0],argv.hive_ver[1])
@@ -183,16 +237,16 @@ def generate_configs(unravel_host):
                                      # 'spark.eventLog.dir':'hdfs:///spark-history',
                                      # 'spark.history.fs.logDirectory':'hdfs:///spark-history',
                                      'spark.unravel.server.hostport':unravel_host+':4043',
-                                     'spark.driver.extraJavaOptions':'-Dcom.unraveldata.client.rest.shutdown.ms=300 -javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=driver' % (re.search('1.[0-9]', argv.spark_ver).group(0)),
-                                     'spark.executor.extraJavaOptions':'-Dcom.unraveldata.client.rest.shutdown.ms=300 -javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=executor' % (re.search('1.[0-9]', argv.spark_ver).group(0))
+                                     'spark.driver.extraJavaOptions':'-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=driver' % (re.search('1.[0-9]', argv.spark_ver).group(0)),
+                                     'spark.executor.extraJavaOptions':'-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=executor' % (re.search('1.[0-9]', argv.spark_ver).group(0))
                                     }
     if re.search('2.[0-9]', argv.spark_ver):
         configs['spark2-defaults'] = {
                                      # 'spark.eventLog.dir':'hdfs:///spark-history',
                                      # 'spark.history.fs.logDirectory':'hdfs:///spark-history',
                                      'spark.unravel.server.hostport':unravel_host+':4043',
-                                     'spark.driver.extraJavaOptions':'-Dcom.unraveldata.client.rest.shutdown.ms=300 -javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=driver' % (re.search('2.[0-9]', argv.spark_ver).group(0)),
-                                     'spark.executor.extraJavaOptions':'-Dcom.unraveldata.client.rest.shutdown.ms=300 -javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=executor' % (re.search('2.[0-9]', argv.spark_ver).group(0))
+                                     'spark.driver.extraJavaOptions':'-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=driver' % (re.search('2.[0-9]', argv.spark_ver).group(0)),
+                                     'spark.executor.extraJavaOptions':'-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=executor' % (re.search('2.[0-9]', argv.spark_ver).group(0))
                                     }
     configs['mapred-site'] = {
                               'yarn.app.mapreduce.am.command-opts':'-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=%s:4043' % unravel_host,
@@ -207,7 +261,12 @@ def generate_configs(unravel_host):
                           }
     return configs
 
-# Get Configuration from ambari api
+
+##########################################################################################
+#   Get Configuration from ambari api
+#   - Input: Configuration Name e.g. hive-site, mapred-site, hive-env
+#   - Output: parsed json dict with all the configuration properties
+##########################################################################################
 def get_config(config_name):
     try:
         base_ambari_url = 'http://%s:8080/api/v1/' % argv.am_host
@@ -220,12 +279,17 @@ def get_config(config_name):
         return None
 
 
+##########################################################################################
+#   Get all hosts from Ambari
+#   - Output: list of hosts
+##########################################################################################
 def get_hosts_list():
+    global ambari_version
     try:
         base_ambari_url = 'http://%s:8080/api/v1/' % argv.am_host
         ambari_base_info = json.loads(session.get(base_ambari_url + 'clusters').text)['items'][0]
         cluster_name = ambari_base_info['Clusters']['cluster_name']
-        print('Ambari Version: ' + ambari_base_info['Clusters']['version'])
+        ambari_version = 'Ambari Version: ' + ambari_base_info['Clusters']['version']
         hosts_info = json.loads(session.get(base_ambari_url + 'clusters/{cluster_name}/hosts'.format(cluster_name=cluster_name)).text)['items']
         hosts_list = []
         for host in hosts_info:
@@ -264,7 +328,7 @@ def check_unravel_properties():
         elif re.search('2.[0-9]', argv.spark_ver):
             spark_default = get_config('spark2-defaults')
         print('------------------------------------------------------------------')
-        if re.search('com.unraveldata.spark.eventlog.location=.*?\n', unravel_properties) and spark_default['spark.eventLog.dir'] in re.findall('com.unraveldata.spark.eventlog.location=.*?\n', unravel_properties)[-1]:
+        if spark_default['spark.eventLog.dir'] in unravel_properties:
             print(colored('com.unraveldata.spark.eventlog.location Correct\n', 'green'))
             printGreen('com.unraveldata.spark.eventlog.location=' + spark_default['spark.eventLog.dir'])
         else:
@@ -305,7 +369,7 @@ def get_daemon_status():
     except Exception as e:
         print(e)
         if requests.get(unravel_base_url + 'clusters').status_code == 200:
-            printRed('\nCheck Unravel Login credentials')
+            printRed('\nAble to connect to UI but unable to get Daemon Status Please Check Unravel Login credentials or try again')
         else:
             printRed('\n[Error]: Couldn\'t connect to Unravel Daemons UI\nPlease Check /usr/local/unravel/logs/ and /var/log/ for unravel_*.log')
         # raise requests.exceptions.ConnectionError('Unable to connect to Unravel host: %s \nCheck Unravel Server Status or /usr/local/unravel/logs for more details' % argv.unravel)
@@ -315,7 +379,7 @@ def printGreen(print_str, do_print=True, attrs_list=None):
     if do_print:
         print(colored(print_str, 'green', attrs=attrs_list))
     else:
-        return(colored(print_str, 'green', attrs=attrs_list))
+        return (colored(print_str, 'green', attrs=attrs_list))
 
 
 def printYellow(print_str, do_print=True, attrs_list=None):
@@ -334,7 +398,9 @@ def printRed(print_str, do_print=True, attrs_list=None):
 
 def main():
     get_hosts_list()
+    print(ambari_version)
     check_hdp_config()
+    check_unravel_sensor()
     check_unravel_properties()
     get_daemon_status()
 
