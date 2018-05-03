@@ -59,7 +59,11 @@ print('Unravel Hostname: ' + argv.unravel)
 print('Unravel Host IP: ' + unravel_ip)
 
 if not argv.hive_ver:
-    argv.hive_ver = Popen('$(which hive) --version 2>/dev/null | grep -Po \'Hive \K([0-9]+\.[0-9]+\.[0-9]+)\'', shell=True, stdout=PIPE).communicate()[0].strip()
+    try:
+        argv.hive_ver = Popen('$(which hive) --version 2>/dev/null | grep -Po \'Hive \K([0-9]+\.[0-9]+\.[0-9]+)\'', shell=True, stdout=PIPE).communicate()[0].strip()
+    except:
+        print(colored('Couldn\'t find hive please use --hive-version argument', 'yellow'))
+        exit()
 argv.hive_ver = argv.hive_ver.split('.')
 
 session = requests.Session()
