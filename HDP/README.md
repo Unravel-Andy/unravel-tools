@@ -10,11 +10,10 @@ required arguments:
                         spark version e.g. 1.6 or 2.2
   --am_host AM_HOSTNAME
                         hostname/IP of Ambari Server
-  --hive-version HIVE_VER
-                        hive version e.g. 1.2
 
 optional arguments:
-
+  --hive-version HIVE_VER
+                        hive version e.g. 1.2
   --unravel-host UNRAVEL
                         Unravel Server hostname or IP address, default: local hostname
   -user USER, --username USER
