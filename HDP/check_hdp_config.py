@@ -23,7 +23,7 @@ except:
 parser = argparse.ArgumentParser()
 parser.add_argument("--spark-version", help="spark version e.g. 1.6 or 2.1", required=True, dest='spark_ver')
 parser.add_argument("--hive-version", help="hive version e.g. 1.2", dest='hive_ver')
-parser.add_argument("--am_host", help="Ambari Server hostname")
+parser.add_argument("--am_host", help="Ambari Server hostname", required=True)
 parser.add_argument("-user","--username", help="Ambari Login username, default is admin", default='admin')
 parser.add_argument("-pass", "--password", help="Ambari Login password, default is admin", default='admin')
 parser.add_argument("--unravel-host", help="Unravel Server hostname", dest='unravel')
