@@ -1,7 +1,7 @@
 ## check_hdp_config.py
 
 #### sample usage:
-`python check_hdp_config.py --spark-version 1.6,2.2 --hive-version 1.2 --am_host congo6.unraveldata.com --unravel-host congo10.unraveldata.com --ssh_user root --ssh_password unraveldata`
+`python check_hdp_config.py --spark-version 1.6,2.2 --am_host congo6.unraveldata.com --unravel-host congo10.unraveldata.com --ssh_user root --ssh_password unraveldata`
 
 ```
 required arguments:
