@@ -303,6 +303,7 @@ def get_hosts_list():
         return(hosts_list)
     except Exception as e:
         printRed(e)
+        ambari_version = 'None'
         return []
 
 
