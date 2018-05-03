@@ -35,7 +35,8 @@ if not argv.cm_hostname:
 
 if not argv.unravel:
     argv.unravel = Popen(['hostname'], stdout=PIPE).communicate()[0].strip()
-    unravel_ip = Popen(['host', argv.unravel], stdout=PIPE).communicate()[0].strip()
+    unravel_ip = re.search('[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}',
+                                      Popen(['host', argv.unravel], stdout=PIPE).communicate()[0].strip()).group(0)
 else:
     if re.match('[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}',argv.unravel):
         unravel_ip = argv.unravel
