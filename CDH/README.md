@@ -38,7 +38,7 @@ optional arguments:
 * /usr/local/unravel owner and group
 * unravel.properties file
     * Hive Metastore properties
-* Daemone status and error/fatal messages from Unravel UI
+* Daemon status and error/fatal messages from Unravel UI
 
 #### packages used (install them manually if getting import error):
 - pip
