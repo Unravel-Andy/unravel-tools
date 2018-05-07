@@ -82,7 +82,7 @@ def check_hdp_config():
     print('\nChecking hive-env\n')
     try:
         hive_env = get_config('hive-env')['content']
-        if hive_env and unravel_configs['hive-env'] in hive_env:
+        if hive_env and unravel_configs['hive-env'].split(":")[1] in hive_env:
             printGreen('AUX_CLASSPATH is in hive-env')
             print(unravel_configs['hive-env'])
         else:
@@ -96,7 +96,7 @@ def check_hdp_config():
     print('\nChecking hadoop-env\n')
     try:
         hadoop_env = get_config('hadoop-env')['content']
-        if hadoop_env and unravel_configs['hadoop-env'] in hadoop_env:
+        if hadoop_env and unravel_configs['hadoop-env'].split(":")[1] in hadoop_env:
             printGreen('HADOOP_CLASSPATH is in hadoop-env')
             print(unravel_configs['hadoop-env'])
         else:
@@ -141,7 +141,10 @@ def check_hdp_config():
             spark_ver = re.search('1.[0-9]', argv.spark_ver).group(0)
             spark_defaults = get_config('spark-defaults')
             for config, val in unravel_configs['spark-defaults'].iteritems():
-                if val in spark_defaults.get(config, '') or unravel_configs_ip['spark-defaults'][config] in spark_defaults.get(config, ''):
+                if config == 'spark.driver.extraJavaOptions' or config == 'spark.executor.extraJavaOptions':
+                    if spark_ver in spark_defaults.get(config, ''):
+                        print(config + ': ' + printGreen(spark_defaults[config], do_print=False))
+                elif val in spark_defaults.get(config, '') or unravel_configs_ip['spark-defaults'][config] in spark_defaults.get(config, ''):
                     print(config + ': ' + printGreen(spark_defaults[config], do_print=False))
                 else:
                     print(config + ': ' + printYellow('\nCurrent Value: ' + spark_defaults.get(config, ''), do_print=False))
@@ -158,7 +161,10 @@ def check_hdp_config():
             spark2_ver = re.search('2.[0-9]', argv.spark_ver).group(0)
             spark2_defaults = get_config('spark2-defaults')
             for config, val in unravel_configs['spark2-defaults'].iteritems():
-                if val in spark2_defaults.get(config, '') or unravel_configs_ip['spark2-defaults'][config] in spark2_defaults.get(config, ''):
+                if config == 'spark.driver.extraJavaOptions' or config == 'spark.executor.extraJavaOptions':
+                    if spark2_ver in spark_defaults.get(config, ''):
+                        print(config + ': ' + printGreen(spark2_defaults[config], do_print=False))
+                elif val in spark2_defaults.get(config, '') or unravel_configs_ip['spark2-defaults'][config] in spark2_defaults.get(config, ''):
                     print(config + ': ' + printGreen(spark2_defaults[config], do_print=False))
                 else:
                     print(config + ': ' + printYellow('\nCurrent Value: ' + spark2_defaults.get(config, ''), do_print=False))
