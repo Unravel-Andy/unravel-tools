@@ -156,9 +156,9 @@ class Mapr_Setup:
                 content = f.read()
 
             if self.do_hive and self.configs['hive-env'].split(':')[1] in content:
-                print("{:10} {:>{width}}".format("AUX_CLASSPATH", "correct",  width=80-len(config)))
+                print("{:10} {:>{width}}".format("AUX_CLASSPATH", "correct",  width=80-len('AUX_CLASSPATH')))
             else:
-                print("{:10} {:>{width}}".format("AUX_CLASSPATH", "incorrect, appending",  width=80-len(config)))
+                print("{:10} {:>{width}}".format("AUX_CLASSPATH", "incorrect, appending",  width=80-len('AUX_CLASSPATH')))
                 with open(hive_env_sh, 'a') as f:
                     print("appending AUX_CLASSPATH")
                     f.write('\n'+ self.configs['hive-env'])
@@ -229,9 +229,9 @@ class Mapr_Setup:
                 f.close()
 
             if  self.do_hive and self.configs['hadoop-env'].split(':')[1] in content:
-                print("{:10} {:>{width}}".format("HADOOP_CLASSPATH", "correct", width=80-len(config)))
+                print("{:10} {:>{width}}".format("HADOOP_CLASSPATH", "correct", width=80-len('HADOOP_CLASSPATH')))
             elif self.do_hive:
-                print("{:10} {:>{width}}".format("HADOOP_CLASSPATH", "incorrect", width=80-len(config)))
+                print("{:10} {:>{width}}".format("HADOOP_CLASSPATH", "incorrect", width=80-len('HADOOP_CLASSPATH')))
                 with open(hadoop_env_sh, 'a') as f:
                     print("appending HADOOP_CLASSPATH")
                     f.write('\n' + self.configs['hadoop-env'])
