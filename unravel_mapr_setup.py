@@ -487,7 +487,7 @@ def main():
     mapr_setup.update_unravel_properties()
     mapr_setup.update_yarn_site()
     if argv.dry_test:
-        print('\nThe script is running in dry test mode no configuration will be changed')
+        print('\nThe script is running in dry run mode no configuration will be changed')
     # mapr_setup.get_hosts_list()
 
 
