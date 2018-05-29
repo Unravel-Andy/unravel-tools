@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.0.1
+# v1.0.2
 import os
 import re
 import json
@@ -17,6 +17,7 @@ parser.add_argument("--spark-version", help="spark version e.g. 1.6.3 or 2.1.0",
 parser.add_argument("--hive-version", help="hive version e.g. 1.2 or 2.1", dest='hive_ver', required=True)
 parser.add_argument("--unravel-server", help="Unravel Server hostname/IP", dest='unravel', required=True)
 parser.add_argument("--dry-run", help="Only Test but will not update anything", dest='dry_test', action='store_true')
+parser.add_argument("-v", "--verbose", help="print current and suggess configuration", action='store_true')
 # parser.add_argument("--ssh_user", help="SSH username for all Cluster Host")
 # parser.add_argument("--ssh_password", help="SSH password for all Cluster Host")
 # parser.add_argument("--ssh_key", help="SSH key full path for all Cluster Host")
@@ -116,23 +117,27 @@ class Mapr_Setup:
                     property_name = property.find('name')
                     property_value = property.find('value')
                     if val_list[0] in property_value.text and property_name.text == config:
-                        print("{:10} {:>{width}}".format(config, "correct", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "correct", width=80-len(config)))
                         find_property = True
+                        if argv.verbose: print_verbose(val_list[0])
                         break
                     elif config == property_name.text:
-                        print("{:10} {:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        if argv.verbose: print_verbose(property_value.text, val_list[0])
                         if property_name.text == ('com.unraveldata.host' or 'com.unraveldata.hive.hook.tcp' or 'com.unraveldata.hive.hdfs.dir'):
                             property_value.text = val_list[0]
                         else:
                             property_value.text = property_value.text + ',' + val_list[0]
                         find_property = True
+
                         if not argv.dry_test: tree.write(hive_site_xml)
                         break
                 if not find_property:
-                    print("{:10} {:>{width}}".format(config, "missing", width=80-len(config)))
+                    print("{0} {1:>{width}}".format(config, "missing", width=80-len(config)))
                     xml_str = self.generate_xml_property(config, val_list)
                     new_property = ET.fromstring(xml_str)
                     root.append(new_property)
+                    if argv.verbose: print_verbose('None', val_list[0])
                     if not argv.dry_test: tree.write(hive_site_xml)
         except Exception as e:
             print("Error: " + str(e))
@@ -155,9 +160,11 @@ class Mapr_Setup:
                 content = f.read()
 
             if self.do_hive and self.configs['hive-env'].split(':')[1] in content:
-                print("{:10} {:>{width}}".format("AUX_CLASSPATH", "correct",  width=80-len('AUX_CLASSPATH')))
+                print("{0} {1:>{width}}".format("AUX_CLASSPATH", "correct",  width=80-len('AUX_CLASSPATH')))
+                if argv.verbose: print_verbose(self.configs['hive-env'])
             else:
-                print("{:10} {:>{width}}".format("AUX_CLASSPATH", "incorrect",  width=80-len('AUX_CLASSPATH')))
+                print("{0} {1:>{width}}".format("AUX_CLASSPATH", "incorrect",  width=80-len('AUX_CLASSPATH')))
+                if argv.verbose: print_verbose('None', self.configs['hive-env'])
                 if not argv.dry_test:
                     with open(hive_env_sh, 'a') as f:
                         print("appending AUX_CLASSPATH")
@@ -183,25 +190,29 @@ class Mapr_Setup:
                 content = f.read()
                 f.close()
 
-            for config, val in  self.configs['spark-defaults'].iteritems():
+            for config, val in self.configs['spark-defaults'].iteritems():
                 if config in content:
                     if val in content:
-                        print("{:10} {:>{width}}".format(config, "correct", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "correct", width=80-len(config)))
+                        if argv.verbose: print_verbose(val)
                     elif not config == 'spark.unravel.server.hostport':
-                        print("{:10} {:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "incorrect", width=80-len(config)))
                         orgin_regex = config + '.*$'
                         orgin_config = re.search(orgin_regex, content).group(0)
                         new_config = orgin_config + ' ' + val
+                        if argv.verbose: print_verbose(orgin_config, new_config)
                     else:
-                        print("{:10} {:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "incorrect", width=80-len(config)))
                         orgin_regex = config + '.*'
                         orgin_config = re.search(orgin_regex, content).group(0)
                         new_config = orgin_config + ' ' + val
                         new_config = re.sub(orgin_regex, new_config, content)
+                        if argv.verbose: print_verbose(orgin_config, new_config)
                 else:
-                    print("{:10} {:>{width}}".format(config, "missing", width=80-len(config)))
+                    print("{0} {1:>{width}}".format(config, "missing", width=80-len(config)))
                     content += '\n' + config + ' ' + val
                     new_config = content
+                    if argv.verbose: print_verbose('None', config + ' ' + val)
 
             if new_config and not argv.dry_test:
                 print('Updating spark-defaults.conf')
@@ -228,9 +239,11 @@ class Mapr_Setup:
                 f.close()
 
             if self.do_hive and self.configs['hadoop-env'].split(':')[1] in content:
-                print("{:10} {:>{width}}".format("HADOOP_CLASSPATH", "correct", width=80-len('HADOOP_CLASSPATH')))
+                print("{0} {1:>{width}}".format("HADOOP_CLASSPATH", "correct", width=80-len('HADOOP_CLASSPATH')))
+                if argv.verbose: print_verbose(self.configs['hadoop-env'])
             elif self.do_hive:
-                print("{:10} {:>{width}}".format("HADOOP_CLASSPATH", "incorrect", width=80-len('HADOOP_CLASSPATH')))
+                print("{0} {1:>{width}}".format("HADOOP_CLASSPATH", "incorrect", width=80-len('HADOOP_CLASSPATH')))
+                if argv.verbose: print_verbose('None', self.configs['hadoop-env'])
                 if not argv.dry_test:
                     with open(hadoop_env_sh, 'a') as f:
                         print("appending HADOOP_CLASSPATH")
@@ -266,11 +279,13 @@ class Mapr_Setup:
                     property_name = property.find('name')
                     property_value = property.find('value')
                     if val_list[0] in property_value.text and property_name.text == config:
-                        print("{:10} {:>{width}}".format(config, "correct", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "correct", width=80-len(config)))
                         find_property = True
+                        if argv.verbose: print_verbose(val_list[0])
                         break
                     elif config == property_name.text:
-                        print("{:10} {:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        if argv.verbose: print_verbose(property_value.text, val_list[0])
                         if not property_name.text == ('mapreduce.task.profile.params' or 'yarn.app.mapreduce.am.command-opts'):
                             property_value.text = val_list[0]
                         else:
@@ -279,7 +294,7 @@ class Mapr_Setup:
                         if not argv.dry_test: tree.write(mapred_site_xml)
                         break
                 if not find_property:
-                    print("{:10} {:>{width}}".format(config, "missing", width=80-len(config)))
+                    print("{0} {1:>{width}}".format(config, "missing", width=80-len(config)))
                     xml_str = self.generate_xml_property(config, val_list)
                     new_property = ET.fromstring(xml_str)
                     root.append(new_property)
@@ -305,13 +320,16 @@ class Mapr_Setup:
                             correct_flag = True
                             break
                     if not correct_flag:
-                        print("{:10} {:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "incorrect", width=80-len(config)))
                         new_config += '%s=%s\n' % (config, val)
+                        if argv.verbose: print_verbose(orgin_config, new_config)
                     else:
-                        print("{:10} {:>{width}}".format(config, "correct", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "correct", width=80-len(config)))
+                        if argv.verbose: print_verbose(orgin_config)
                 else:
-                    print("{:10} {:>{width}}".format(config, "missing", width=80-len(config)))
+                    print("{0} {1:>{width}}".format(config, "missing", width=80-len(config)))
                     new_config += '%s=%s\n' % (config, val)
+                    if argv.verbose: print_verbose('None', new_config)
             if len(new_config.split('\n')) > 1 and not argv.dry_test:
                 with open(unravel_properties_path, 'a') as f:
                     f.write(headers + new_config)
@@ -338,26 +356,30 @@ class Mapr_Setup:
                     property_name = property.find('name')
                     property_value = property.find('value')
                     if val_list[0] in property_value.text and property_name.text == config:
-                        print("{:10} {:>{width}}".format(config, "correct", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "correct", width=80-len(config)))
                         find_property = True
+                        if argv.verbose: print_verbose(val_list[0])
                         break
                     elif config == property_name.text:
-                        print("{:10} {:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        if argv.verbose: print_verbose(property_value.text, val_list[0])
                         property_value.text = val_list[0]
                         find_property = True
                         if not argv.dry_test: tree.write(yarn_site_xml)
                         break
                 if not find_property:
-                    print("{:10} {:>{width}}".format(config, "missing", width=80-len(config)))
+                    print("{0} {1:>{width}}".format(config, "missing", width=80-len(config)))
                     if not config == 'yarn.resourcemanager.webapp.address':
                         xml_str = self.generate_xml_property(config, val_list)
                         new_property = ET.fromstring(xml_str)
                         root.append(new_property)
+                        if argv.verbose: print_verbose('None', val_list[0])
                         if not argv.dry_test: tree.write(yarn_site_xml)
                     else:
                         xml_str = self.generate_xml_property(config, val_list, default=False)
                         new_property = ET.fromstring(xml_str)
                         root.append(new_property)
+                        if argv.verbose: print_verbose('None', val_list[0])
                         if not argv.dry_test: tree.write(yarn_site_xml)
         except Exception as e:
             print(e)
@@ -393,6 +415,12 @@ class Mapr_Setup:
             print(e)
             print("Failed to get node list from maprcli only current host will be configured")
             return [os.uname()[1]]
+
+
+def print_verbose(cur_val, sug_val=None):
+    print('Current Configuration: ' + str(cur_val))
+    if sug_val:
+        print('Suggest Configuration: ' + str(sug_val))
 
 
 # Download hive-hook jar and spark sensor zip function shared in MapR and HDP
