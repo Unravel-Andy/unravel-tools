@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.0.2
+# v1.0.3
 import os
 import re
 import json
@@ -8,6 +8,7 @@ import urllib2
 import zipfile
 import argparse
 from glob import glob
+from time import sleep
 from shutil import copyfile
 import xml.etree.ElementTree as ET
 from subprocess import call, Popen, PIPE
@@ -74,6 +75,10 @@ class Mapr_Setup:
                                 "yarn.resourcemanager.webapp.address": ["%s:8088" % self.get_resourcemanager_host(), ' '],
                                 "yarn.log-aggregation-enable": ["true", "For log aggregations"]
                                 }
+
+        if 'None' in configs['yarn-site']['yarn.resourcemanager.webapp.address'][0]:
+            del configs['yarn-site']['yarn.resourcemanager.webapp.address']
+
         return configs
 
     def generate_xml_property(self, config, val_list, default=True):
@@ -308,32 +313,35 @@ class Mapr_Setup:
         headers = "# required for MapR\n"
         new_config = ''
         if os.path.exists(unravel_properties_path):
-            with open(unravel_properties_path, 'r') as f:
-                unravel_properties = f.read()
-                f.close()
-            for config, val in self.configs['unravel-properties'].iteritems():
-                find_configs = re.findall(config + '.*\n', unravel_properties)
-                if find_configs:
-                    correct_flag = False
-                    for orgin_config in find_configs:
-                        if val in orgin_config:
-                            correct_flag = True
-                            break
-                    if not correct_flag:
-                        print("{0} {1:>{width}}".format(config, "incorrect", width=80-len(config)))
-                        new_config += '%s=%s\n' % (config, val)
-                        if argv.verbose: print_verbose(orgin_config, new_config)
-                    else:
-                        print("{0} {1:>{width}}".format(config, "correct", width=80-len(config)))
-                        if argv.verbose: print_verbose(orgin_config)
-                else:
-                    print("{0} {1:>{width}}".format(config, "missing", width=80-len(config)))
-                    new_config += '%s=%s\n' % (config, val)
-                    if argv.verbose: print_verbose('None', new_config)
-            if len(new_config.split('\n')) > 1 and not argv.dry_test:
-                with open(unravel_properties_path, 'a') as f:
-                    f.write(headers + new_config)
+            try:
+                with open(unravel_properties_path, 'r') as f:
+                    unravel_properties = f.read()
                     f.close()
+                for config, val in self.configs['unravel-properties'].iteritems():
+                    find_configs = re.findall(config + '.*\n', unravel_properties)
+                    if find_configs:
+                        correct_flag = False
+                        for orgin_config in find_configs:
+                            if val in orgin_config:
+                                correct_flag = True
+                                break
+                        if not correct_flag:
+                            print("{0} {1:>{width}}".format(config, "incorrect", width=80-len(config)))
+                            new_config += '%s=%s\n' % (config, val)
+                            if argv.verbose: print_verbose(orgin_config, new_config)
+                        else:
+                            print("{0} {1:>{width}}".format(config, "correct", width=80-len(config)))
+                            if argv.verbose: print_verbose(orgin_config)
+                    else:
+                        print("{0} {1:>{width}}".format(config, "missing", width=80-len(config)))
+                        new_config += '%s=%s\n' % (config, val)
+                        if argv.verbose: print_verbose('None', new_config)
+                if len(new_config.split('\n')) > 1 and not argv.dry_test:
+                    with open(unravel_properties_path, 'a') as f:
+                        f.write(headers + new_config)
+                        f.close()
+            except Exception as e:
+                print('Error: ' + str(e))
         else:
             print("unravel.properties not found skip update unravel.properties")
 
@@ -401,7 +409,7 @@ class Mapr_Setup:
                     return 'localhost'
         except:
             print("Failed to get resource manager host")
-            return 'localhost'
+            return 'None'
 
     # Get hosts list from maprcli
     def get_hosts_list(self):
@@ -516,6 +524,9 @@ def main():
     mapr_setup.update_yarn_site()
     if argv.dry_test:
         print('\nThe script is running in dry run mode no configuration will be changed')
+    else:
+        print('\nUpdaing incorrect or missing configuration')
+        sleep(5)
     # mapr_setup.get_hosts_list()
 
 
