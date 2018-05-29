@@ -11,7 +11,7 @@ from glob import glob
 from time import sleep
 from shutil import copyfile
 import xml.etree.ElementTree as ET
-from subprocess import call, Popen, PIPE
+from subprocess import Popen, PIPE
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--spark-version", help="spark version e.g. 1.6.3 or 2.1.0", dest='spark_ver', required=True)
@@ -405,9 +405,11 @@ class Mapr_Setup:
                 if re.search('resourcemanager', content_data['service']):
                     return content_data['hostname']
                 else:
-                    print("Resource manager host not found")
-                    return 'localhost'
-        except:
+                    continue
+            print("Resource manager host not found")
+            return 'localhost'
+        except Exception as e:
+            print(e)
             print("Failed to get resource manager host")
             return 'None'
 
