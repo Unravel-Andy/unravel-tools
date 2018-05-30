@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.0.3
+# v1.0.4
 import os
 import re
 import json
@@ -197,7 +197,11 @@ class Mapr_Setup:
 
             for config, val in self.configs['spark-defaults'].iteritems():
                 if config in content:
-                    if val in content:
+                    if config == 'spark.eventLog.dir' or config == 'spark.history.fs.logDirectory':
+                        self.configs['spark-defaults'][config] = filter(None, re.split('\s', re.search(config + '.*', content).group(0)))[1]
+                        if config == 'spark.eventLog.dir':
+                            self.configs['unravel-properties']["com.unraveldata.spark.eventlog.location"] = self.configs['spark-defaults'][config]
+                    elif val in content:
                         print("{0} {1:>{width}}".format(config, "correct", width=80-len(config)))
                         if argv.verbose: print_verbose(val)
                     elif not config == 'spark.unravel.server.hostport':
@@ -325,13 +329,13 @@ class Mapr_Setup:
                             if val in orgin_config:
                                 correct_flag = True
                                 break
-                        if not correct_flag:
-                            print("{0} {1:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        if correct_flag:
+                            print("{0} {1:>{width}}".format(config, "correct", width=80 - len(config)))
+                            if argv.verbose: print_verbose(orgin_config)
+                        else:
+                            print("{0} {1:>{width}}".format(config, "incorrect", width=80 - len(config)))
                             new_config += '%s=%s\n' % (config, val)
                             if argv.verbose: print_verbose(orgin_config, new_config)
-                        else:
-                            print("{0} {1:>{width}}".format(config, "correct", width=80-len(config)))
-                            if argv.verbose: print_verbose(orgin_config)
                     else:
                         print("{0} {1:>{width}}".format(config, "missing", width=80-len(config)))
                         new_config += '%s=%s\n' % (config, val)
