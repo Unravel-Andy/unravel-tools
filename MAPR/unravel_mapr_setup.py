@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.0.5
+# v1.0.6
 import os
 import re
 import json
@@ -315,15 +315,29 @@ class Mapr_Setup:
     def update_unravel_properties(self):
         print("\nChecking Unravel properties")
         unravel_properties_path = '/usr/local/unravel/etc/unravel.properties'
+        unravel_version_path = '/usr/local/unravel/ngui/www/version.txt'
         headers = "# required for MapR\n"
         new_config = ''
+        #update unravel properties if unravel version is 4.3.2
+        if os.path.exists(unravel_version_path):
+            with open(unravel_version_path, 'r') as f:
+                version_file = f.read()
+                f.close()
+
+            if re.search('4.3.[2-9]', version_file) and os.path.exists(unravel_properties_path):
+                file = open(unravel_properties_path, 'r').read()
+                unravel_properties = re.sub('unravel.jdbc.url=jdbc:mysql', 'unravel.jdbc.url=jdbc:mariadb', file)
+                file = open(unravel_properties_path, 'w')
+                file.write(unravel_properties)
+                file.close()
+
         if os.path.exists(unravel_properties_path):
             try:
                 with open(unravel_properties_path, 'r') as f:
                     unravel_properties = f.read()
                     f.close()
                 for config, val in self.configs['unravel-properties'].iteritems():
-                    find_configs = re.findall(config + '.*\n', unravel_properties)
+                    find_configs = re.findall('\s' + config + '.*', unravel_properties)
                     if find_configs:
                         correct_flag = False
                         for orgin_config in find_configs:
