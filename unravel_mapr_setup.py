@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.0.4
+# v1.0.5
 import os
 import re
 import json
@@ -19,6 +19,7 @@ parser.add_argument("--hive-version", help="hive version e.g. 1.2 or 2.1", dest=
 parser.add_argument("--unravel-server", help="Unravel Server hostname/IP", dest='unravel', required=True)
 parser.add_argument("--dry-run", help="Only Test but will not update anything", dest='dry_test', action='store_true')
 parser.add_argument("-v", "--verbose", help="print current and suggess configuration", action='store_true')
+parser.add_argument("--sensor-only", help="check/upgrade Unravel Sensor Only", dest='sensor_only', action='store_true')
 # parser.add_argument("--ssh_user", help="SSH username for all Cluster Host")
 # parser.add_argument("--ssh_password", help="SSH password for all Cluster Host")
 # parser.add_argument("--ssh_key", help="SSH key full path for all Cluster Host")
@@ -456,6 +457,7 @@ def deploy_unravel_sensor(unravel_base_url, hive_version_xyz):
                 f.write(urllib2.urlopen(unravel_sensor_url + hive_hook_jar).read())
                 f.close()
             print(hive_hook_jar + " Download Complete!")
+            print(hive_hook_jar + " Installed!")
             sensor_deploy_result.append(True)
         else:
             sensor_deploy_result.append(True)
@@ -491,6 +493,7 @@ def deploy_unravel_sensor(unravel_base_url, hive_version_xyz):
                 zip_target = zipfile.ZipFile(save_path, 'r')
                 zip_target.extractall(jar_path)
                 zip_target.close()
+                print('Spark Sensor Installed')
                 sensor_deploy_result.append(True)
             else:
                 print(spark_sensor_zip + ' Download Failed')
@@ -511,6 +514,9 @@ def deploy_unravel_sensor(unravel_base_url, hive_version_xyz):
 def main():
     mapr_setup = Mapr_Setup()
     deploy_sensor_result = deploy_unravel_sensor(mapr_setup.unravel_base_url, mapr_setup.hive_version_xyz)
+    if argv.sensor_only:
+        exit()
+
     # if hive sensor install succefully do instrumentation
     if deploy_sensor_result[0]:
         mapr_setup.update_hive_site()
