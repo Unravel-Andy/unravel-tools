@@ -16,7 +16,7 @@ parser.add_argument("--hive-version", help="hive version e.g. 1.2 or 2.1", dest=
 parser.add_argument("--unravel-server", help="Unravel Server hostname/IP", dest='unravel', required=True)
 parser.add_argument("--ambari-server", help="Ambari Server hostname/IP", dest='ambari', required=True)
 parser.add_argument("--ambari-user", help="Ambari Server Login username", dest='ambari_user', default='admin')
-parser.add_argument("--ambari-passwrod", help="Ambari Server Login password", dest='ambari_pass', default='admin')
+parser.add_argument("--ambari-password", help="Ambari Server Login password", dest='ambari_pass', default='admin')
 parser.add_argument("--dry-run", help="Only Test but will not update anything", dest='dry_test', action='store_true')
 parser.add_argument("-v", "--verbose", help="print current and suggess configuration", action='store_true')
 parser.add_argument("--sensor-only", help="check/upgrade Unravel Sensor Only", dest='sensor_only', action='store_true')
