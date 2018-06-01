@@ -20,6 +20,7 @@ parser.add_argument("--ambari-passwrod", help="Ambari Server Login password", de
 parser.add_argument("--dry-run", help="Only Test but will not update anything", dest='dry_test', action='store_true')
 parser.add_argument("-v", "--verbose", help="print current and suggess configuration", action='store_true')
 parser.add_argument("--sensor-only", help="check/upgrade Unravel Sensor Only", dest='sensor_only', action='store_true')
+parser.add_argument("--restart_am", help="Restart Ambari Services")
 # parser.add_argument("--ssh_user", help="SSH username for all Cluster Host")
 # parser.add_argument("--ssh_password", help="SSH password for all Cluster Host")
 # parser.add_argument("--ssh_key", help="SSH key full path for all Cluster Host")
@@ -368,21 +369,8 @@ class HDPSetup:
     def update_unravel_properties(self):
         print("\nChecking Unravel properties")
         unravel_properties_path = '/usr/local/unravel/etc/unravel.properties'
-        unravel_version_path = '/usr/local/unravel/ngui/www/version.txt'
         headers = "# HDP Setup\n"
         new_config = ''
-        # update unravel properties if unravel version is 4.3.2
-        if os.path.exists(unravel_version_path):
-            with open(unravel_version_path, 'r') as f:
-                version_file = f.read()
-                f.close()
-
-            if re.search('4.3.[2-9]', version_file) and os.path.exists(unravel_properties_path) and not argv.dry_test:
-                file = open(unravel_properties_path, 'r').read()
-                unravel_properties = re.sub('unravel.jdbc.url=jdbc:mysql', 'unravel.jdbc.url=jdbc:mariadb', file)
-                file = open(unravel_properties_path, 'w')
-                file.write(unravel_properties)
-                file.close()
 
         if os.path.exists(unravel_properties_path):
             try:
@@ -419,8 +407,8 @@ class HDPSetup:
                     with open(unravel_properties_path, 'a') as f:
                         f.write(headers + new_config)
                         f.close()
-                    print('\nRestarting Unravel')
-                    print Popen(['/etc/init.d/unravel_all.sh', 'restart']).communicate()[0]
+                    # print('\nRestarting Unravel')
+                    # print Popen(['/etc/init.d/unravel_all.sh', 'restart']).communicate()[0]
             except Exception as e:
                 print(e)
                 print('skip update unravel.properties')
@@ -449,6 +437,28 @@ class HDPSetup:
         except Exception as e:
             print(e)
             pass
+
+    def check_unravel_version(self):
+        unravel_properties_path = '/usr/local/unravel/etc/unravel.properties'
+        unravel_version_path = '/usr/local/unravel/ngui/www/version.txt'
+        # update unravel properties if unravel version is 4.3.2 or above
+        if os.path.exists(unravel_version_path):
+            print('\nchecking Unravel version')
+            with open(unravel_version_path, 'r') as f:
+                version_file = f.read()
+                f.close()
+            if re.search('4\.[2-9]\.[1-9].*', version_file):
+                print(re.search('4\.[2-9]\.[1-9].*', version_file).group(0))
+
+            if re.search('4\.3\.[2-9]', version_file) and os.path.exists(unravel_properties_path):
+                print('Unravel 4.3.2 and above detected, use jdbc maria driver')
+                if not argv.dry_test:
+                    file = open(unravel_properties_path, 'r').read()
+                    unravel_properties = re.sub('unravel.jdbc.url=jdbc:mysql', 'unravel.jdbc.url=jdbc:mariadb', file)
+                    file = open(unravel_properties_path, 'w')
+                    file.write(unravel_properties)
+                    file.close()
+                    print('Unravel 4.3.2 detected, updating jdbc driver')
 
 
 def print_format(config_name, content):
@@ -575,7 +585,10 @@ def main():
     else:
         print("\nInstall Spark & MR Sensor Failed skip spark & MR instrumentation")
     hdp_setup.update_unravel_properties()
-    hdp_setup.restart_services()
+    hdp_setup.check_unravel_version()
+
+    if argv.restart_am:
+        hdp_setup.restart_services()
     if argv.dry_test:
         print (print_yellow('\nThe script is running in dry run mode no configuration will be changed'))
 
