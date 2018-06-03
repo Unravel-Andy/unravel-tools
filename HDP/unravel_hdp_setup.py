@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.0.0
+# v1.0.1
 import os
 import re
 import json
@@ -20,7 +20,7 @@ parser.add_argument("--ambari-password", help="Ambari Server Login password", de
 parser.add_argument("--dry-run", help="Only Test but will not update anything", dest='dry_test', action='store_true')
 parser.add_argument("-v", "--verbose", help="print current and suggess configuration", action='store_true')
 parser.add_argument("--sensor-only", help="check/upgrade Unravel Sensor Only", dest='sensor_only', action='store_true')
-parser.add_argument("--restart_am", help="Restart Ambari Services")
+parser.add_argument("--restart_am", help="Restart Ambari Services", action='store_true')
 # parser.add_argument("--ssh_user", help="SSH username for all Cluster Host")
 # parser.add_argument("--ssh_password", help="SSH password for all Cluster Host")
 # parser.add_argument("--ssh_key", help="SSH key full path for all Cluster Host")
