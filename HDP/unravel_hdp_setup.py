@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.0.1
+# v1.0.2
 import os
 import re
 import json
@@ -27,6 +27,11 @@ parser.add_argument("--restart_am", help="Restart Ambari Services", action='stor
 argv = parser.parse_args()
 
 argv.unravel_ip = Popen(['hostname', '-i'], stdout=PIPE).communicate()[0].strip()
+if len(argv.unravel.split(':')) == 2:
+    argv.unravel = argv.unravel.split(':')[0]
+    argv.unravel_port = argv.unravel.split(':')[1]
+else:
+    argv.unravel_port = 3000
 
 
 class HDPSetup:
