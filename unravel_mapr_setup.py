@@ -1,5 +1,6 @@
 #!/usr/bin/python
-# v1.0.5
+# v1.0.7
+# - handle unravel server port
 import os
 import re
 import json
@@ -24,6 +25,12 @@ parser.add_argument("--sensor-only", help="check/upgrade Unravel Sensor Only", d
 # parser.add_argument("--ssh_password", help="SSH password for all Cluster Host")
 # parser.add_argument("--ssh_key", help="SSH key full path for all Cluster Host")
 argv = parser.parse_args()
+
+if len(argv.unravel.split(':')) == 2:
+    argv.unravel_port = argv.unravel.split(':')[1]
+    argv.unravel = argv.unravel.split(':')[0]
+else:
+    argv.unravel_port = 3000
 
 
 class Mapr_Setup:
@@ -317,13 +324,14 @@ class Mapr_Setup:
         unravel_properties_path = '/usr/local/unravel/etc/unravel.properties'
         headers = "# required for MapR\n"
         new_config = ''
+
         if os.path.exists(unravel_properties_path):
             try:
                 with open(unravel_properties_path, 'r') as f:
                     unravel_properties = f.read()
                     f.close()
                 for config, val in self.configs['unravel-properties'].iteritems():
-                    find_configs = re.findall(config + '.*\n', unravel_properties)
+                    find_configs = re.findall('\s' + config + '.*', unravel_properties)
                     if find_configs:
                         correct_flag = False
                         for orgin_config in find_configs:
@@ -431,6 +439,27 @@ class Mapr_Setup:
             print("Failed to get node list from maprcli only current host will be configured")
             return [os.uname()[1]]
 
+    def check_unravel_version(self):
+        unravel_properties_path = '/usr/local/unravel/etc/unravel.properties'
+        unravel_version_path = '/usr/local/unravel/ngui/www/version.txt'
+        # update unravel properties if unravel version is 4.3.2 or above
+        if os.path.exists(unravel_version_path):
+            print('\nchecking Unravel version')
+            with open(unravel_version_path, 'r') as f:
+                version_file = f.read()
+                f.close()
+            if re.search('4\.[2-9]\.[1-9].*', version_file):
+                print(re.search('4\.[2-9]\.[1-9].*', version_file).group(0))
+
+            if re.search('4\.3\.[2-9]', version_file) and os.path.exists(unravel_properties_path):
+                print('Unravel 4.3.2 and above detected, use jdbc maria driver')
+                if not argv.dry_test:
+                    file = open(unravel_properties_path, 'r').read()
+                    unravel_properties = re.sub('unravel.jdbc.url=jdbc:mysql', 'unravel.jdbc.url=jdbc:mariadb', file)
+                    file = open(unravel_properties_path, 'w')
+                    file.write(unravel_properties)
+                    file.close()
+                    print('Unravel 4.3.2 detected, updating jdbc driver')
 
 def print_verbose(cur_val, sug_val=None):
     print('Current Configuration: ' + str(cur_val))
@@ -440,7 +469,7 @@ def print_verbose(cur_val, sug_val=None):
 
 # Download hive-hook jar and spark sensor zip function shared in MapR and HDP
 def deploy_unravel_sensor(unravel_base_url, hive_version_xyz):
-    unravel_sensor_url = 'http://{unravel_base_url}:3000/hh/'.format(unravel_base_url=unravel_base_url)
+    unravel_sensor_url = 'http://{unravel_base_url}:{unravel_port}/hh/'.format(unravel_base_url=unravel_base_url, unravel_port=argv.unravel_port)
     sensor_deploy_result = []
     # Download Hive Hook jar
     try:
