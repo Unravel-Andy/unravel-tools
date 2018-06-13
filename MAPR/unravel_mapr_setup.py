@@ -1,6 +1,6 @@
 #!/usr/bin/python
-# v1.0.7
-# - handle unravel server port
+# v1.0.8
+# - custom configuration path
 import os
 import re
 import json
@@ -21,14 +21,14 @@ parser.add_argument("--unravel-server", help="Unravel Server hostname/IP", dest=
 parser.add_argument("--dry-run", help="Only Test but will not update anything", dest='dry_test', action='store_true')
 parser.add_argument("-v", "--verbose", help="print current and suggess configuration", action='store_true')
 parser.add_argument("--sensor-only", help="check/upgrade Unravel Sensor Only", dest='sensor_only', action='store_true')
-# parser.add_argument("--ssh_user", help="SSH username for all Cluster Host")
-# parser.add_argument("--ssh_password", help="SSH password for all Cluster Host")
-# parser.add_argument("--ssh_key", help="SSH key full path for all Cluster Host")
+parser.add_argument("--hive-path", help="path to hive configuration DIR default: /opt/mapr/hive/hive-X.Y/conf", dest='hive_path')
+parser.add_argument("--spark-path", help="path to spark configuration DIR default: /opt/mapr/spark/spark-X.Y.Z/conf", dest='spark_path')
+parser.add_argument("--hadoop-path", help="path to hadoop configuration DIR default: /opt/mapr/hadoop/hadoop-X.Y.Z/etc/hadoop", dest='hadoop_path')
 argv = parser.parse_args()
 
 if len(argv.unravel.split(':')) == 2:
-    argv.unravel = argv.unravel.split(':')[0]
     argv.unravel_port = argv.unravel.split(':')[1]
+    argv.unravel = argv.unravel.split(':')[0]
 else:
     argv.unravel_port = 3000
 
@@ -61,16 +61,16 @@ class Mapr_Setup:
         configs['spark-defaults'] = {
                                     'spark.eventLog.dir': 'maprfs:///apps/spark',
                                     'spark.history.fs.logDirectory': 'maprfs:///apps/spark',
-                                    'spark.unravel.server.hostport':unravel_host+':4043',
-                                    'spark.driver.extraJavaOptions':'-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s.%s,config=driver' % (self.spark_version_xyz[0], self.spark_version_xyz[1]),
-                                    'spark.executor.extraJavaOptions':'-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s.%s,config=executor' % (self.spark_version_xyz[0], self.spark_version_xyz[1])
+                                    'spark.unravel.server.hostport': unravel_host+':4043',
+                                    'spark.driver.extraJavaOptions': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s.%s,config=driver' % (self.spark_version_xyz[0], self.spark_version_xyz[1]),
+                                    'spark.executor.extraJavaOptions': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s.%s,config=executor' % (self.spark_version_xyz[0], self.spark_version_xyz[1])
                                     }
         configs['mapred-site'] = {
-                                  'yarn.app.mapreduce.am.command-opts':['-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=%s:4043' % unravel_host, ' '],
-                                  'mapreduce.task.profile':['true', ' ' ],
-                                  'mapreduce.task.profile.maps':['0-5', ' '],
-                                  'mapreduce.task.profile.reduces':['0-5', ' '],
-                                  'mapreduce.task.profile.params':['-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=%s:4043' % unravel_host, ' ']
+                                  'yarn.app.mapreduce.am.command-opts': ['-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=%s:4043' % unravel_host, ' '],
+                                  'mapreduce.task.profile': ['true', ' '],
+                                  'mapreduce.task.profile.maps': ['0-5', ' '],
+                                  'mapreduce.task.profile.reduces': ['0-5', ' '],
+                                  'mapreduce.task.profile.params': ['-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=%s:4043' % unravel_host, ' ']
                                  }
         configs['unravel-properties'] = {
                                          "com.unraveldata.job.collector.done.log.base": "/var/mapr/cluster/yarn/rm/staging/history/done",
@@ -110,7 +110,10 @@ class Mapr_Setup:
     def update_hive_site(self):
         try:
             print("\nChecking hive-site.xml")
-            conf_base_path = os.path.join(self.base_mapr_path, 'hive/hive-{x}.{y}/conf/'.format(x=self.hive_version_xyz[0], y=self.hive_version_xyz[1]))
+            if argv.hive_path:
+                conf_base_path = argv.hive_path
+            else:
+                conf_base_path = os.path.join(self.base_mapr_path, 'hive/hive-{x}.{y}/conf/'.format(x=self.hive_version_xyz[0], y=self.hive_version_xyz[1]))
             hive_site_xml = os.path.join(conf_base_path, 'hive-site.xml')
             preunravel_hive_site = os.path.join(conf_base_path, 'hive-site.xml.preunravel')
 
@@ -159,12 +162,15 @@ class Mapr_Setup:
     def update_hive_env(self):
         print("\nChecking hive-env.sh")
         try:
-            conf_base_path = os.path.join(self.base_mapr_path, 'hive/hive-{x}.{y}/conf/'.format(x=self.hive_version_xyz[0], y=self.hive_version_xyz[1]))
+            if argv.hive_path:
+                conf_base_path = argv.hive_path
+            else:
+                conf_base_path = os.path.join(self.base_mapr_path, 'hive/hive-{x}.{y}/conf/'.format(x=self.hive_version_xyz[0], y=self.hive_version_xyz[1]))
             hive_env_sh = os.path.join(conf_base_path, 'hive-env.sh')
             preunravel_hive_env = os.path.join(conf_base_path, 'hive-env.sh.preunravel')
 
             if not os.path.exists(hive_env_sh):
-                copyfile(conf_base_path + 'hive-env.sh.template', hive_env_sh)
+                copyfile(os.path.join(conf_base_path, 'hive-env.sh.template'), hive_env_sh)
             elif not os.path.exists(preunravel_hive_env) and not argv.dry_test:
                 print("Backup original hive-env.sh")
                 copyfile(hive_env_sh, preunravel_hive_env)
@@ -190,7 +196,10 @@ class Mapr_Setup:
     def update_spark_defaults(self):
         print("\nChecking spark-defaults.conf")
         try:
-            conf_base_path = os.path.join(self.base_mapr_path, 'spark/spark-{0}/conf/'.format(argv.spark_ver))
+            if argv.spark_path:
+                conf_base_path = argv.spark_path
+            else:
+                conf_base_path = os.path.join(self.base_mapr_path, 'spark/spark-{0}/conf/'.format(argv.spark_ver))
             spark_default_conf = os.path.join(conf_base_path, 'spark-defaults.conf')
             preunravel_spark_default = os.path.join(conf_base_path, 'spark-defaults.conf.preunravel')
             new_config = None
@@ -243,7 +252,10 @@ class Mapr_Setup:
     def update_hadoop_env(self):
         print("\nChecking hadoop-env.sh")
         try:
-            conf_base_path = glob('/opt/mapr/hadoop/hadoop-*.*.*/etc/hadoop/')[-1]
+            if argv.hadoop_path:
+                conf_base_path = argv.hadoop_path
+            else:
+                conf_base_path = glob('/opt/mapr/hadoop/hadoop-*.*.*/etc/hadoop/')[-1]
             hadoop_env_sh = os.path.join(conf_base_path, 'hadoop-env.sh')
             preunravel_hadoop_env = os.path.join(conf_base_path, 'hadoop-env.sh.preunravel')
 
@@ -275,7 +287,10 @@ class Mapr_Setup:
     def update_mapred_site(self):
         try:
             print("\nChecking mapred-site.xml")
-            conf_base_path = glob('/opt/mapr/hadoop/hadoop-*.*.*/etc/hadoop/')[-1]
+            if argv.hadoop_path:
+                conf_base_path = argv.hadoop_path
+            else:
+                conf_base_path = glob('/opt/mapr/hadoop/hadoop-*.*.*/etc/hadoop/')[-1]
             mapred_site_xml = os.path.join(conf_base_path, 'mapred-site.xml')
             preunravel_mapred_site = os.path.join(conf_base_path, 'mapred-site.xml.preunravel')
 
@@ -361,7 +376,10 @@ class Mapr_Setup:
     def update_yarn_site(self):
         print("\nChecking yarn-site.xml")
         try:
-            conf_base_path = glob('/opt/mapr/hadoop/hadoop-*.*.*/etc/hadoop/')[-1]
+            if argv.hadoop_path:
+                conf_base_path = argv.hadoop_path
+            else:
+                conf_base_path = glob('/opt/mapr/hadoop/hadoop-*.*.*/etc/hadoop/')[-1]
             yarn_site_xml = os.path.join(conf_base_path, 'yarn-site.xml')
             preunravel_yarn_site = os.path.join(conf_base_path, 'yarn-site.xml.preunravel')
 
