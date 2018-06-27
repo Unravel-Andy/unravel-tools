@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.0.8
+# v1.0.9
 # - custom configuration path
 import os
 import re
@@ -33,7 +33,7 @@ else:
     argv.unravel_port = 3000
 
 
-class Mapr_Setup:
+class MaprSetup:
     def __init__(self):
         self.test = None
         self.hive_version_xyz = argv.hive_ver.split('.')
@@ -428,10 +428,12 @@ class Mapr_Setup:
         try:
             result_file = '/tmp/unravel_request.log'
             Popen('maprcli node list resourcemanager -json > %s' % result_file, shell=True, stdout=PIPE)
+            sleep(5)
             with open(result_file, 'r') as f:
                 content = json.loads(f.read())
                 f.close()
-            # os.remove(result_file)
+            sleep(1)
+            os.remove(result_file)
             for index, content_data in enumerate(content['data']):
                 if re.search('resourcemanager', content_data['service']):
                     return content_data['hostname']
@@ -440,7 +442,7 @@ class Mapr_Setup:
             print("Resource manager host not found")
             return 'localhost'
         except Exception as e:
-            print(e)
+            # print(e)
             print("Failed to get resource manager host")
             return 'None'
 
@@ -559,7 +561,7 @@ def deploy_unravel_sensor(unravel_base_url, hive_version_xyz):
 
 
 def main():
-    mapr_setup = Mapr_Setup()
+    mapr_setup = MaprSetup()
     deploy_sensor_result = deploy_unravel_sensor(mapr_setup.unravel_base_url, mapr_setup.hive_version_xyz)
     if argv.sensor_only:
         exit()
