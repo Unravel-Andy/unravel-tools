@@ -1,6 +1,10 @@
 # unravel-tools
 ## unravel_api_test.py
 
+Required Packages:
+
+`requests` and `termcolor`
+
 Usage: python unravel_api_test.py --unravel-host <Unravel HOSTNAME> [-user] [-pass]
 
 To add new api end point open the file and append a line 

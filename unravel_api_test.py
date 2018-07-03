@@ -49,7 +49,6 @@ def test_login():
         web_api.headers.update({'Authorization':'JWT %s' % token})
     except:
         print((colored("/signIn Fail",'red')))
-
     print('')
 
 
