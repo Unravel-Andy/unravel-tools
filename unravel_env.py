@@ -148,7 +148,10 @@ def main():
     ENV.append('HIVE_VERSION=%s' % hive_version())
     ENV.append('HADOOP_VERSION=%s' % hadoop_version())
     ENV.append('UNRAVEL_HOME_DIR=%s' %  UNRAVEL_HOME)
-    ENV.append('UNRAVEL_SENSOR_DIR=/usr/local/unravel-agent,/usr/local/unravel_client')
+    if cluster_type == 'CDH':
+        ENV.append('UNRAVEL_SENSOR_DIR=/opt/cloudera/parcels/UNRAVEL_SENSOR/')
+    else:
+        ENV.append('UNRAVEL_SENSOR_DIR=/usr/local/unravel-agent,/usr/local/unravel_client')
     ENV.append('UNRAVEL_VERSION=%s' % unravel_version())
     if cluster_type == 'CDH':
         ENV.append('CLOUDERA_MANAGER_HOST=%s' % cloudera_host())
