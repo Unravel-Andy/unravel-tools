@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.0.2
+# v1.0.11
 import os
 import re
 import json
@@ -7,14 +7,32 @@ import base64
 import urllib2
 import zipfile
 import argparse
-from time import time
+from time import time, sleep
 from subprocess import call, Popen, PIPE
+
+try:
+    unravel_hostname = Popen(['hostname'], stdout=PIPE).communicate()[0].strip()
+except:
+    unravel_hostname = None
+
+ambari_agent_conf_path = '/etc/ambari-agent/conf/ambari-agent.ini'
+try:
+    aa_conf = open(ambari_agent_conf_path, 'r').read()
+    am_host = re.search('hostname=.*', aa_conf).group(0).split('=')[1]
+except:
+    am_host = None
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--spark-version", help="spark version e.g. 1.6.3 or 2.1.0", dest='spark_ver', required=True)
 parser.add_argument("--hive-version", help="hive version e.g. 1.2 or 2.1", dest='hive_ver', required=True)
-parser.add_argument("--unravel-server", help="Unravel Server hostname/IP", dest='unravel', required=True)
-parser.add_argument("--ambari-server", help="Ambari Server hostname/IP", dest='ambari', required=True)
+if unravel_hostname:
+    parser.add_argument("--unravel-server", help="Unravel Server hostname/IP", dest='unravel', default=unravel_hostname)
+else:
+    parser.add_argument("--unravel-server", help="Unravel Server hostname/IP", dest='unravel', required=True)
+if am_host:
+    parser.add_argument("--ambari-server", help="Ambari Server hostname/IP", dest='ambari', default=am_host)
+else:
+    parser.add_argument("--ambari-server", help="Ambari Server hostname/IP", dest='ambari', required=True)
 parser.add_argument("--ambari-user", help="Ambari Server Login username", dest='ambari_user', default='admin')
 parser.add_argument("--ambari-password", help="Ambari Server Login password", dest='ambari_pass', default='admin')
 parser.add_argument("--dry-run", help="Only Test but will not update anything", dest='dry_test', action='store_true')
@@ -71,9 +89,9 @@ class HDPSetup:
                 'spark.history.fs.logDirectory':'hdfs:///spark-history',
                 'spark.unravel.server.hostport': unravel_host + ':4043',
                 'spark.driver.extraJavaOptions': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=driver' % (
-                    re.search('1.[0-9]', argv.spark_ver).group(0)),
+                    re.search('1.[6-9]', argv.spark_ver).group(0)),
                 'spark.executor.extraJavaOptions': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=executor' % (
-                    re.search('1.[0-9]', argv.spark_ver).group(0))
+                    re.search('1.[6-9]', argv.spark_ver).group(0))
             }
         if re.search('2.[0-9]', argv.spark_ver):
             configs['spark2-defaults'] = {
@@ -95,7 +113,8 @@ class HDPSetup:
         configs['unravel-properties'] = {
             "com.unraveldata.job.collector.done.log.base": "/mr-history/done",
             "com.unraveldata.job.collector.log.aggregation.base": "/app-logs/*/logs/",
-            "com.unraveldata.spark.eventlog.location": "hdfs:///spark-history"
+            "com.unraveldata.spark.eventlog.location": "hdfs:///spark-history",
+            "com.unraveldata.sensor.tasks.disabled": "iw"
         }
         configs['tez-site'] = {
             'tez.am.launch.cmd-opts': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr,config=tez -Dunravel.server.hostport=%s:4043' % unravel_host,
@@ -106,7 +125,24 @@ class HDPSetup:
     def get_yarn_timeline(self):
         return self.read_configs(self.configs_base_url + '?type={0}&tag={1}'.format('yarn-site', self.current_config_tag['yarn-site']['tag']))['items'][0]['properties']['yarn.timeline-service.webapp.address'].split(':')
 
-    def read_configs(self, api_path, full_path=False):
+    def get_yarn_log_dir(self):
+        log_dir = self.read_configs(self.configs_base_url + '?type={0}&tag={1}'.format('yarn-site',
+                                                                                    self.current_config_tag[
+                                                                                        'yarn-site']['tag']))['items'][
+            0]['properties']['yarn.nodemanager.remote-app-log-dir']
+        log_suffix = self.read_configs(self.configs_base_url + '?type={0}&tag={1}'.format('yarn-site',
+                                                                                    self.current_config_tag[
+                                                                                        'yarn-site']['tag']))['items'][
+            0]['properties']['yarn.nodemanager.remote-app-log-dir-suffix']
+        return '%s/*/%s' % (log_dir, log_suffix)
+
+    def get_mapr_done_dir(self):
+        return self.read_configs(self.configs_base_url + '?type={0}&tag={1}'.format('mapred-site',
+                                                                                    self.current_config_tag[
+                                                                                        'mapred-site']['tag']))['items'][
+            0]['properties']['mapreduce.jobhistory.done-dir']
+
+    def read_configs(self, api_path, full_path=False, retry=0):
         try:
             if full_path:
                 request_url = api_path
@@ -116,7 +152,8 @@ class HDPSetup:
             request = urllib2.Request(request_url)
             base64string = base64.b64encode('%s:%s' % (argv.ambari_user, argv.ambari_pass))
             request.add_header("Authorization", "Basic %s" % base64string)
-            return json.loads(urllib2.urlopen(request).read())
+            res = json.loads(urllib2.urlopen(request, timeout=10).read())
+            return res
         except urllib2.HTTPError as e:
             if '403' in str(e):
                 print("Invalid username/password combination. Please use correct Ambari Login credentials")
@@ -124,16 +161,19 @@ class HDPSetup:
                 print(e)
             exit()
         except Exception as e:
-            print(e)
-            print("Error: Unable to reach Ambari Server")
-            exit()
+            if retry < 2 and e.message == 'timed out':
+                print('retrying')
+                return self.read_configs(api_path, full_path=full_path, retry=retry+1)
+            else:
+                print(e)
+                print("Error: Unable to reach Ambari Server")
+                exit()
 
     def restart_services(self):
         if not argv.dry_test:
             print("\nRestart Ambari Services")
             restart_command = 'curl -u {0}:\'{1}\' -i -H \'X-Requested-By: ambari\' -X POST -d \'{{\"RequestInfo\": {{\"command\":\"RESTART\",\"context\" :\"Unravel request: Restart Services\",\"operation_level\":\"host_component\"}},\"Requests/resource_filters\":[{{\"hosts_predicate\":\"HostRoles/stale_configs=true\"}}]}}\' http://{2}:8080/api/v1/clusters/{3}/requests >/tmp/Restart.out 2>/tmp/Restart.err'.format(argv.ambari_user, argv.ambari_pass, argv.ambari, self.cluster_name)
             call_result = call(restart_command, shell=True)
-            # print call_result, restart_command
 
     def update_hive_site(self):
         try:
@@ -150,35 +190,33 @@ class HDPSetup:
                 val_ip = self.configs_ip[config_type][config]
                 cur_config = hive_site_configs.get(config, None)
                 if cur_config is None:
-                    # print("{:10} {:>{width}}".format(config, print_red("missing"), width=80 - len(config)))
                     print_format(config, print_red("missing"))
                     config_changed = True
                     hive_site_configs[config] = val
                     if argv.verbose:
                         print_verbose(cur_config, val)
                 elif val in cur_config or val_ip in cur_config:
-                    # print("{:10} {:>{width}}".format(config, print_green("correct"), width=80 - len(config)))
-                    print_format(config, print_green("correct"))
+                    print_format(config, print_green("No change needed"))
                     if argv.verbose:
                         print_verbose(cur_config)
                 elif re.match('hive.exec.(pre|post|failure).hooks', config) and val not in cur_config:
-                    # print("{:10} {:>{width}}".format(config, print_red("incorrect"), width=80 - len(config)))
-                    print_format(config, print_red("incorrect"))
+                    print_format(config, print_red("Missing value"))
                     hive_site_configs[config] += ',' + val
                     config_changed = True
                     if argv.verbose:
                         print_verbose(cur_config, hive_site_configs[config])
                 else:
-                    # print("{:10} {:>{width}}".format(config, print_red("incorrect"), width=80 - len(config)))
-                    print_format(config, print_red("incorrect"))
+                    print_format(config, print_red("Missing value"))
                     hive_site_configs[config] = val
                     config_changed = True
                     if argv.verbose:
                         print_verbose(cur_config, val)
-
+                sleep(0.5)
             if config_changed and not argv.dry_test:
                 print("updating %s" % config_type)
                 self.update_configs(config_type, hive_site_configs)
+                sleep(1)
+                print('Update Successful!')
         except Exception as e:
             print("Error: " + str(e))
 
@@ -190,12 +228,10 @@ class HDPSetup:
                 config_type, self.current_config_tag[config_type]['tag']))['items'][0]['properties']
 
             if self.do_hive and self.configs['hive-env'].split(':')[1] in hive_env_configs['content']:
-                # print("{:10} {:>{width}}".format('AUX_CLASSPATH', print_green("correct"), width=80 - len('AUX_CLASSPATH')))
-                print_format('AUTH_CLASSPATH', print_green("correct"))
+                print_format('AUTH_CLASSPATH', print_green("No change needed"))
                 if argv.verbose:
                     print_verbose(self.configs['hive-env'])
             else:
-                # print("{:10} {:>{width}}".format('AUX_CLASSPATH', print_red("missing"), width=80 - len('AUX_CLASSPATH')))
                 print_format('AUX_CLASSPATH', print_red("missing"))
                 hive_env_configs['content'] += '\n%s\n' % self.configs[config_type]
                 if argv.verbose:
@@ -203,6 +239,8 @@ class HDPSetup:
                 if not argv.dry_test:
                     print("updating %s" % config_type)
                     self.update_configs(config_type, hive_env_configs)
+                    sleep(1)
+                    print('Update Successful!')
         except Exception as e:
             print("Error: " + str(e))
 
@@ -217,42 +255,44 @@ class HDPSetup:
                 val_ip = self.configs_ip[config_type][config]
                 cur_config = spark_defaults_configs.get(config, None)
                 if cur_config is None:
-                    # print("{:10} {:>{width}}".format(config, print_red("missing"), width=80 - len(config)))
                     print_format(config, print_red("missing"))
                     config_changed = True
                     spark_defaults_configs[config] = val
                     if argv.verbose:
                         print_verbose(cur_config, val)
                 elif config == 'spark.eventLog.dir' or config == 'spark.history.fs.logDirectory':
-                    self.configs['spark-defaults'][config] = cur_config
+                    self.configs[config_type][config] = cur_config
                     if config == 'spark.eventLog.dir':
-                        self.configs['unravel-properties']["com.unraveldata.spark.eventlog.location"] = cur_config
+                        if config_type == 'spark2-defaults' and re.search('1.[6-9]', argv.spark_ver):
+                                self.configs['unravel-properties']["com.unraveldata.spark.eventlog.location"] += ',' + cur_config
+                        else:
+                            self.configs['unravel-properties']["com.unraveldata.spark.eventlog.location"] = cur_config
                 elif val in cur_config or val_ip in cur_config or 'libs=spark-%s' % version in cur_config:
-                    # print("{:10} {:>{width}}".format(config, print_green("correct"), width=80 - len(config)))
-                    print_format(config, print_green("correct"))
+                    print_format(config, print_green("No change needed"))
                     if argv.verbose:
                         print_verbose(cur_config)
                 elif config == 'spark.unravel.server.hostport':
-                    # print("{:10} {:>{width}}".format(config, print_red("incorrect"), width=80 - len(config)))
-                    print_format(config, print_red("incorrect"))
+                    print_format(config, print_red("Missing value"))
                     config_changed = True
                     spark_defaults_configs[config] = val
                     if argv.verbose:
                         print_verbose(cur_config, val)
                 else:
-                    # print("{:10} {:>{width}}".format(config, print_red("incorrect"), width=80 - len(config)))
-                    print_format(config, print_red("incorrect"))
+                    print_format(config, print_red("Missing value"))
                     config_changed = True
-                    orgin_regex = '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=config=driver,libs=spark-[0-9].[0-9]'
+                    orgin_regex = '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-[0-9].[0-9],config=(driver|executor)'
                     if re.search(orgin_regex, spark_defaults_configs[config]):
                         spark_defaults_configs[config] = re.sub(orgin_regex, val, spark_defaults_configs[config])
                     else:
                         spark_defaults_configs[config] += ' ' + val
                     if argv.verbose:
                         print_verbose(cur_config, spark_defaults_configs[config])
+                sleep(0.5)
             if config_changed and not argv.dry_test:
                 print("updating %s" % config_type)
                 self.update_configs(config_type, spark_defaults_configs)
+                sleep(1)
+                print('Update Successful!')
         except Exception as e:
             print("Error: " + str(e))
 
@@ -264,12 +304,10 @@ class HDPSetup:
                 config_type, self.current_config_tag[config_type]['tag']))['items'][0]['properties']
 
             if self.do_hive and self.configs['hadoop-env'].split(':')[1] in hive_env_configs['content']:
-                # print("{:10} {:>{width}}".format('HADOOP_CLASSPATH', print_green("correct"), width=80 - len('HADOOP_CLASSPATH')))
-                print_format('HADOOP_CLASSPATH', print_green("correct"))
+                print_format('HADOOP_CLASSPATH', print_green("No change needed"))
                 if argv.verbose:
                     print_verbose(self.configs['hadoop-env'])
             else:
-                # print("{:10} {:>{width}}".format('HADOOP_CLASSPATH', print_red("missing"), width=80 - len('HADOOP_CLASSPATH')))
                 print_format('HADOOP_CLASSPATH', print_red("missing"))
                 if argv.verbose:
                     print_verbose('', self.configs['hadoop-env'])
@@ -277,6 +315,8 @@ class HDPSetup:
                     hive_env_configs['content'] += '\n%s\n' % self.configs[config_type]
                     print("updating %s" % config_type)
                     self.update_configs(config_type, hive_env_configs)
+                    sleep(1)
+                    print('Update Successful!')
         except Exception as e:
             print("Error: " + str(e))
 
@@ -292,27 +332,23 @@ class HDPSetup:
                 val_ip = self.configs_ip[config_type][config]
                 cur_config = mapred_site_configs.get(config, None)
                 if cur_config is None:
-                    # print("{:10} {:>{width}}".format(config, print_red("missing"), width=80 - len(config)))
                     print_format(config, print_red("missing"))
                     config_changed = True
                     mapred_site_configs[config] = val
                     if argv.verbose:
                         print_verbose(cur_config, val)
                 elif val in cur_config or val_ip in cur_config:
-                    # print("{:10} {:>{width}}".format(config, print_green("correct"), width=80 - len(config)))
-                    print_format(config, print_green("correct"))
+                    print_format(config, print_green("No change needed"))
                     if argv.verbose:
                         print_verbose(cur_config)
                 elif not config == ('yarn.app.mapreduce.am.command-opts' or 'mapreduce.task.profile.params'):
-                    # print("{:10} {:>{width}}".format(config, print_red("incorrect"), width=80 - len(config)))
-                    print_format(config, print_red("incorrect"))
+                    print_format(config, print_red("Missing value"))
                     config_changed = True
                     mapred_site_configs[config] = val
                     if argv.verbose:
                         print_verbose(cur_config, val)
                 else:
-                    # print("{:10} {:>{width}}".format(config, print_red("incorrect"), width=80 - len(config)))
-                    print_format(config, print_red("incorrect"))
+                    print_format(config, print_red("Missing value"))
                     config_changed = True
                     orgin_regex = '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=.*?:4043'
                     if re.search(orgin_regex, mapred_site_configs[config]):
@@ -321,9 +357,12 @@ class HDPSetup:
                         mapred_site_configs[config] += ' ' + val
                     if argv.verbose:
                         print_verbose(cur_config, mapred_site_configs[config])
+                sleep(0.5)
             if config_changed and not argv.dry_test:
                 print("updating %s" % config_type)
                 self.update_configs(config_type, mapred_site_configs)
+                sleep(1)
+                print('Update Successful!')
         except Exception as e:
             print("Error: " + str(e))
 
@@ -339,20 +378,17 @@ class HDPSetup:
                 val_ip = self.configs_ip[config_type][config]
                 cur_config = tez_site_configs.get(config, None)
                 if cur_config is None:
-                    # print("{:10} {:>{width}}".format(config, print_red("missing"), width=80 - len(config)))
                     print_format(config, print_red("missing"))
                     config_changed = True
                     tez_site_configs[config] = val
                     if argv.verbose:
                         print_verbose(cur_config, val)
                 elif val in cur_config or val_ip in cur_config:
-                    # print("{:10} {:>{width}}".format(config, print_green("correct"), width=80 - len(config)))
-                    print_format(config, print_green("correct"))
+                    print_format(config, print_green("No change needed"))
                     if argv.verbose:
                         print_verbose(cur_config)
                 else:
-                    # print("{:10} {:>{width}}".format(config, print_red("incorrect"), width=80 - len(config)))
-                    print_format(config, print_red("incorrect"))
+                    print_format(config, print_red("Missing value"))
                     config_changed = True
                     orgin_regex = '-javaagent:/usr/local/unravel-agent.*?:4043'
                     if re.search(orgin_regex, tez_site_configs[config]):
@@ -361,13 +397,16 @@ class HDPSetup:
                         tez_site_configs[config] += ' ' + val
                     if argv.verbose:
                         print_verbose(cur_config, tez_site_configs[config])
+                sleep(0.5)
             # Insert yarn.timeline.webapp property in unravel.properties
             yarn_timeline_webapp = self.get_yarn_timeline()
             self.configs['unravel-properties']['com.unraveldata.yarn.timeline-service.webapp.address'] = 'http://%s' % yarn_timeline_webapp[0]
             self.configs['unravel-properties']['com.unraveldata.yarn.timeline-service.port'] = yarn_timeline_webapp[1]
             if config_changed and not argv.dry_test:
-                self.update_configs(config_type, tez_site_configs)
                 print("updating %s" % config_type)
+                self.update_configs(config_type, tez_site_configs)
+                sleep(1)
+                print('Update Successful!')
         except Exception as e:
             print("Error: " + str(e))
 
@@ -376,6 +415,12 @@ class HDPSetup:
         unravel_properties_path = '/usr/local/unravel/etc/unravel.properties'
         headers = "# HDP Setup\n"
         new_config = ''
+
+        try:
+            self.configs['unravel-properties']['com.unraveldata.job.collector.log.aggregation.base'] = self.get_yarn_log_dir()
+            self.configs['unravel-properties']['com.unraveldata.job.collector.done.log.base'] = self.get_mapr_done_dir()
+        except:
+            pass
 
         if os.path.exists(unravel_properties_path):
             try:
@@ -389,31 +434,29 @@ class HDPSetup:
                         for cur_config in find_configs:
                             if val in cur_config:
                                 correct_flag = True
-                                break
+                            else:
+                                correct_flag = False
                         if not correct_flag:
-                            # print("{:10} {:>{width}}".format(config, print_red("incorrect"), width=80-len(config)))
-                            print_format(config, print_red("incorrect"))
-                            new_config += '%s=%s\n' % (config, config + '=' + val)
+                            print_format(config, print_red("Missing value"))
+                            new_config += '%s=%s\n' % (config, val)
                             if argv.verbose:
                                 print_verbose(cur_config.strip(), config + '=' + val)
                         else:
-                            # print("{:10} {:>{width}}".format(config, print_green("correct"), width=80-len(config)))
-                            print_format(config, print_green("correct"))
+                            print_format(config, print_green("No change needed"))
                             if argv.verbose:
                                 print_verbose(config + '=' + val)
                     else:
-                        # print("{:10} {:>{width}}".format(config, print_red("missing"), width=80-len(config)))
-                        print_format(config, print_red("missing"))
+                        print_format(config, print_red("Missing value"))
                         new_config += '%s=%s\n' % (config, val)
                         if argv.verbose:
-                            print_verbose(None, val)
+                            print_verbose(None, config + '=' + val)
                 if len(new_config.split('\n')) > 1 and not argv.dry_test:
                     print('Updating Unravel Properties')
                     with open(unravel_properties_path, 'a') as f:
                         f.write(headers + new_config)
                         f.close()
-                    # print('\nRestarting Unravel')
-                    # print Popen(['/etc/init.d/unravel_all.sh', 'restart']).communicate()[0]
+                    sleep(3)
+                    print('Update Successful!')
             except Exception as e:
                 print(e)
                 print('skip update unravel.properties')
@@ -456,14 +499,15 @@ class HDPSetup:
                 print(re.search('4\.[2-9]\.[1-9].*', version_file).group(0))
 
             if re.search('4\.3\.[2-9]', version_file) and os.path.exists(unravel_properties_path):
-                print('Unravel 4.3.2 and above detected, use jdbc maria driver')
                 if not argv.dry_test:
                     file = open(unravel_properties_path, 'r').read()
-                    unravel_properties = re.sub('unravel.jdbc.url=jdbc:mysql', 'unravel.jdbc.url=jdbc:mariadb', file)
-                    file = open(unravel_properties_path, 'w')
-                    file.write(unravel_properties)
-                    file.close()
-                    print('Unravel 4.3.2 detected, updating jdbc driver')
+                    if re.search('unravel.jdbc.url=jdbc:mysql', file):
+                        print('Unravel 4.3.2 and above detected, use jdbc mariadb driver')
+                        unravel_properties = re.sub('unravel.jdbc.url=jdbc:mysql', 'unravel.jdbc.url=jdbc:mariadb', file)
+                        file = open(unravel_properties_path, 'w')
+                        file.write(unravel_properties)
+                        file.close()
+                        print('Unravel 4.3.2 detected, updating jdbc driver')
 
 
 def print_format(config_name, content):
@@ -563,12 +607,10 @@ def deploy_unravel_sensor(unravel_base_url, hive_version_xyz):
 
 def main():
     hdp_setup = HDPSetup()
-
     deploy_sensor_result = deploy_unravel_sensor(hdp_setup.unravel_base_url, hdp_setup.hive_version_xyz)
 
     if argv.sensor_only:
         exit(0)
-
     # if hive sensor install succefully do instrumentation
     if deploy_sensor_result[0] or argv.dry_test:
         hdp_setup.update_hive_site()
@@ -579,12 +621,12 @@ def main():
 
     # if spark & MR sensor install succefully do instrumentation
     if deploy_sensor_result[1] or argv.dry_test:
-        if re.search('2.[0-9]', argv.spark_ver):
-            config_type = 'spark2-defaults'
-            hdp_setup.update_spark_defaults(config_type, re.search('2.[0-9]', argv.spark_ver).group(0))
         if re.search('1.[6-9]', argv.spark_ver):
             config_type = 'spark-defaults'
             hdp_setup.update_spark_defaults(config_type, re.search('1.[6-9]', argv.spark_ver).group(0))
+        if re.search('2.[0-9]', argv.spark_ver):
+            config_type = 'spark2-defaults'
+            hdp_setup.update_spark_defaults(config_type, re.search('2.[0-9]', argv.spark_ver).group(0))
         hdp_setup.update_mapred_site()
         hdp_setup.update_tez_site()
     else:

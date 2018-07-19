@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.0.9
+# v1.0.10
 # - custom configuration path
 import os
 import re
@@ -133,7 +133,7 @@ class MaprSetup:
                     property_name = property.find('name')
                     property_value = property.find('value')
                     if val_list[0] in property_value.text and property_name.text == config:
-                        print("{0} {1:>{width}}".format(config, "correct", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "No change needed", width=80-len(config)))
                         find_property = True
                         if argv.verbose: print_verbose(val_list[0])
                         break
@@ -179,10 +179,10 @@ class MaprSetup:
                 content = f.read()
 
             if self.do_hive and self.configs['hive-env'].split(':')[1] in content:
-                print("{0} {1:>{width}}".format("AUX_CLASSPATH", "correct",  width=80-len('AUX_CLASSPATH')))
+                print("{0} {1:>{width}}".format("AUX_CLASSPATH", "No change needed",  width=80-len('AUX_CLASSPATH')))
                 if argv.verbose: print_verbose(self.configs['hive-env'])
             else:
-                print("{0} {1:>{width}}".format("AUX_CLASSPATH", "incorrect",  width=80-len('AUX_CLASSPATH')))
+                print("{0} {1:>{width}}".format("AUX_CLASSPATH", "Missing value",  width=80-len('AUX_CLASSPATH')))
                 if argv.verbose: print_verbose('None', self.configs['hive-env'])
                 if not argv.dry_test:
                     with open(hive_env_sh, 'a') as f:
@@ -219,16 +219,16 @@ class MaprSetup:
                         if config == 'spark.eventLog.dir':
                             self.configs['unravel-properties']["com.unraveldata.spark.eventlog.location"] = self.configs['spark-defaults'][config]
                     elif val in content:
-                        print("{0} {1:>{width}}".format(config, "correct", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "No change needed", width=80-len(config)))
                         if argv.verbose: print_verbose(val)
                     elif not config == 'spark.unravel.server.hostport':
-                        print("{0} {1:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "Missing value", width=80-len(config)))
                         orgin_regex = config + '.*$'
                         orgin_config = re.search(orgin_regex, content).group(0)
                         new_config = orgin_config + ' ' + val
                         if argv.verbose: print_verbose(orgin_config, new_config)
                     else:
-                        print("{0} {1:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "Missing value", width=80-len(config)))
                         orgin_regex = config + '.*'
                         orgin_config = re.search(orgin_regex, content).group(0)
                         new_config = orgin_config + ' ' + val
@@ -268,10 +268,10 @@ class MaprSetup:
                 f.close()
 
             if self.do_hive and self.configs['hadoop-env'].split(':')[1] in content:
-                print("{0} {1:>{width}}".format("HADOOP_CLASSPATH", "correct", width=80-len('HADOOP_CLASSPATH')))
+                print("{0} {1:>{width}}".format("HADOOP_CLASSPATH", "No change needed", width=80-len('HADOOP_CLASSPATH')))
                 if argv.verbose: print_verbose(self.configs['hadoop-env'])
             elif self.do_hive:
-                print("{0} {1:>{width}}".format("HADOOP_CLASSPATH", "incorrect", width=80-len('HADOOP_CLASSPATH')))
+                print("{0} {1:>{width}}".format("HADOOP_CLASSPATH", "Missing value", width=80-len('HADOOP_CLASSPATH')))
                 if argv.verbose: print_verbose('None', self.configs['hadoop-env'])
                 if not argv.dry_test:
                     with open(hadoop_env_sh, 'a') as f:
@@ -311,12 +311,12 @@ class MaprSetup:
                     property_name = property.find('name')
                     property_value = property.find('value')
                     if val_list[0] in property_value.text and property_name.text == config:
-                        print("{0} {1:>{width}}".format(config, "correct", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "No change needed", width=80-len(config)))
                         find_property = True
                         if argv.verbose: print_verbose(val_list[0])
                         break
                     elif config == property_name.text:
-                        print("{0} {1:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "Missing value", width=80-len(config)))
                         if argv.verbose: print_verbose(property_value.text, val_list[0])
                         if not property_name.text == ('mapreduce.task.profile.params' or 'yarn.app.mapreduce.am.command-opts'):
                             property_value.text = val_list[0]
@@ -354,10 +354,10 @@ class MaprSetup:
                                 correct_flag = True
                                 break
                         if correct_flag:
-                            print("{0} {1:>{width}}".format(config, "correct", width=80 - len(config)))
+                            print("{0} {1:>{width}}".format(config, "No change needed", width=80 - len(config)))
                             if argv.verbose: print_verbose(orgin_config)
                         else:
-                            print("{0} {1:>{width}}".format(config, "incorrect", width=80 - len(config)))
+                            print("{0} {1:>{width}}".format(config, "Missing value", width=80 - len(config)))
                             new_config += '%s=%s\n' % (config, val)
                             if argv.verbose: print_verbose(orgin_config, new_config)
                     else:
@@ -368,6 +368,8 @@ class MaprSetup:
                     with open(unravel_properties_path, 'a') as f:
                         f.write(headers + new_config)
                         f.close()
+                    sleep(3)
+                    print('Update Successful!')
             except Exception as e:
                 print('Error: ' + str(e))
         else:
@@ -395,12 +397,12 @@ class MaprSetup:
                     property_name = property.find('name')
                     property_value = property.find('value')
                     if val_list[0] in property_value.text and property_name.text == config:
-                        print("{0} {1:>{width}}".format(config, "correct", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "No change needed", width=80-len(config)))
                         find_property = True
                         if argv.verbose: print_verbose(val_list[0])
                         break
                     elif config == property_name.text:
-                        print("{0} {1:>{width}}".format(config, "incorrect", width=80-len(config)))
+                        print("{0} {1:>{width}}".format(config, "Missing value", width=80-len(config)))
                         if argv.verbose: print_verbose(property_value.text, val_list[0])
                         property_value.text = val_list[0]
                         find_property = True
