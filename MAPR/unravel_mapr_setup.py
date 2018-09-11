@@ -1,6 +1,6 @@
 #!/usr/bin/python
-# v1.0.10
-# - custom configuration path
+# v1.1.1
+# Unraveldata MAPR instrumentation script
 import os
 import re
 import json
@@ -24,13 +24,29 @@ parser.add_argument("--sensor-only", help="check/upgrade Unravel Sensor Only", d
 parser.add_argument("--hive-path", help="path to hive configuration DIR default: /opt/mapr/hive/hive-X.Y/conf", dest='hive_path')
 parser.add_argument("--spark-path", help="path to spark configuration DIR default: /opt/mapr/spark/spark-X.Y.Z/conf", dest='spark_path')
 parser.add_argument("--hadoop-path", help="path to hadoop configuration DIR default: /opt/mapr/hadoop/hadoop-X.Y.Z/etc/hadoop", dest='hadoop_path')
+parser.add_argument("--all", "-all", help="install and config all components", action='store_true')
+parser.add_argument("--hive-only", help="install and config hive sensor only", action='store_true')
+parser.add_argument("--spark-only", help="install and config spark sensor only", action='store_true')
+parser.add_argument("--mr-only", help="install and config mr sensor only", action='store_true')
+parser.add_argument("--unravel-only", help="update unravel.properties file only", action='store_true')
+parser.add_argument("--spark-streaming", "-ss", help="enable spark streaming", action='store_true')
+parser.add_argument("--lr-port", help="unravel log receiver port", default=4043)
 argv = parser.parse_args()
 
+# Get Unravel Node IP
 if len(argv.unravel.split(':')) == 2:
     argv.unravel_port = argv.unravel.split(':')[1]
     argv.unravel = argv.unravel.split(':')[0]
 else:
     argv.unravel_port = 3000
+
+if argv.hive_only or argv.spark_only or argv.mr_only or argv.unravel_only:
+    INSTALL_ALL = False
+else:
+    INSTALL_ALL = True
+
+if argv.all:
+    INSTALL_ALL = True
 
 
 class MaprSetup:
@@ -44,8 +60,13 @@ class MaprSetup:
         self.do_hive = True
         self.do_spark = True
 
+    #   Input: Unravel host IP or hostname
+    #   Return:  dict of all the configurations
+    #   Description: Generate all the configurations needed for Unravel MAPR Setup
     def generate_configs(self):
         configs = {}
+        agent_path = '/usr/local/unravel-agent'
+        client_path = '/usr/local/unravel_client'
         unravel_host = argv.unravel
         configs['hive-site'] = {
                                 "com.unraveldata.host": [unravel_host,'Unravel hive-hook processing host'],
@@ -56,21 +77,24 @@ class MaprSetup:
                                 "hive.exec.post.hooks": ["com.unraveldata.dataflow.hive.hook.HivePostHook", "for Unravel, from unraveldata.com"],
                                 "hive.exec.failure.hooks": ["com.unraveldata.dataflow.hive.hook.HiveFailHook", "for Unravel, from unraveldata.com"]
                                 }
-        configs['hive-env'] = 'export AUX_CLASSPATH=${AUX_CLASSPATH}:/usr/local/unravel_client/unravel-hive-%s.%s.0-hook.jar' % (self.hive_version_xyz[0], self.hive_version_xyz[1])
-        configs['hadoop-env'] = 'export HADOOP_CLASSPATH=${HADOOP_CLASSPATH}:/usr/local/unravel_client/unravel-hive-%s.%s.0-hook.jar' % (self.hive_version_xyz[0], self.hive_version_xyz[1])
+        configs['hive-env'] = 'export AUX_CLASSPATH=${AUX_CLASSPATH}:%s/unravel-hive-%s.%s.0-hook.jar' % (client_path, self.hive_version_xyz[0], self.hive_version_xyz[1])
+        configs['hadoop-env'] = 'export HADOOP_CLASSPATH=${HADOOP_CLASSPATH}:%s/unravel-hive-%s.%s.0-hook.jar' % (client_path, self.hive_version_xyz[0], self.hive_version_xyz[1])
         configs['spark-defaults'] = {
                                     'spark.eventLog.dir': 'maprfs:///apps/spark',
                                     'spark.history.fs.logDirectory': 'maprfs:///apps/spark',
-                                    'spark.unravel.server.hostport': unravel_host+':4043',
-                                    'spark.driver.extraJavaOptions': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s.%s,config=driver' % (self.spark_version_xyz[0], self.spark_version_xyz[1]),
-                                    'spark.executor.extraJavaOptions': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s.%s,config=executor' % (self.spark_version_xyz[0], self.spark_version_xyz[1])
+                                    'spark.unravel.server.hostport': unravel_host+':%s' % argv.lr_port,
+                                    'spark.driver.extraJavaOptions': '-javaagent:%s/jars/btrace-agent.jar=libs=spark-%s.%s,config=driver' % (agent_path, self.spark_version_xyz[0], self.spark_version_xyz[1]),
+                                    'spark.executor.extraJavaOptions': '-javaagent:%s/jars/btrace-agent.jar=libs=spark-%s.%s,config=executor' % (agent_path, self.spark_version_xyz[0], self.spark_version_xyz[1])
                                     }
+        if argv.spark_streaming:
+            configs['spark-defaults']['spark.driver.extraJavaOptions'] = '-javaagent:%s/jars/btrace-agent.jar=script=DriverProbe.class:SQLProbe.class:StreamingProbe.class,config=driver,libs=spark-%s.%s' % (agent_path, self.spark_version_xyz[0], self.spark_version_xyz[1])
+
         configs['mapred-site'] = {
-                                  'yarn.app.mapreduce.am.command-opts': ['-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=%s:4043' % unravel_host, ' '],
+                                  'yarn.app.mapreduce.am.command-opts': ['-javaagent:%s/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=%s:%s' % (agent_path, unravel_host, argv.lr_port), ' '],
                                   'mapreduce.task.profile': ['true', ' '],
                                   'mapreduce.task.profile.maps': ['0-5', ' '],
                                   'mapreduce.task.profile.reduces': ['0-5', ' '],
-                                  'mapreduce.task.profile.params': ['-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=%s:4043' % unravel_host, ' ']
+                                  'mapreduce.task.profile.params': ['-javaagent:%s/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=%s:%s' % (agent_path, unravel_host, argv.lr_port), ' ']
                                  }
         configs['unravel-properties'] = {
                                          "com.unraveldata.job.collector.done.log.base": "/var/mapr/cluster/yarn/rm/staging/history/done",
@@ -87,8 +111,15 @@ class MaprSetup:
         if 'None' in configs['yarn-site']['yarn.resourcemanager.webapp.address'][0]:
             del configs['yarn-site']['yarn.resourcemanager.webapp.address']
 
+        if argv.lr_port != 4043:
+            configs['hive-site']['com.unraveldata.live.logreceiver.port'] = argv.lr_port
+            configs['unravel-properties']['com.unraveldata.live.logreceiver.port'] = argv.lr_port
+
         return configs
 
+    #   Input:  property name, list of value and description
+    #   Return: xml property string
+    #   Description: xml parser for hive-site.xml/mapred-site.xml
     def generate_xml_property(self, config, val_list, default=True):
         if default:
             return """
@@ -107,6 +138,7 @@ class MaprSetup:
   </property>
 """ % (config, val_list[0])
 
+    #   Compare and Update hive-site.xml in /opt/mapr/hive/hive-X.Y/conf or custom path
     def update_hive_site(self):
         try:
             print("\nChecking hive-site.xml")
@@ -159,6 +191,7 @@ class MaprSetup:
             print("Error: " + str(e))
             self.do_hive = False
 
+    #   Compare and Update hive-env.sh in /opt/mapr/hive/hive-X.Y/conf or custom path
     def update_hive_env(self):
         print("\nChecking hive-env.sh")
         try:
@@ -193,6 +226,7 @@ class MaprSetup:
             print("Error: " + str(e))
             self.do_hive = False
 
+    #   Compare and Update spark-defaults.conf in /opt/mapr/spark/spark-X.Y.Z/conf or custom path
     def update_spark_defaults(self):
         print("\nChecking spark-defaults.conf")
         try:
@@ -223,17 +257,17 @@ class MaprSetup:
                         if argv.verbose: print_verbose(val)
                     elif not config == 'spark.unravel.server.hostport':
                         print("{0} {1:>{width}}".format(config, "Missing value", width=80-len(config)))
-                        orgin_regex = config + '.*$'
-                        orgin_config = re.search(orgin_regex, content).group(0)
-                        new_config = orgin_config + ' ' + val
-                        if argv.verbose: print_verbose(orgin_config, new_config)
+                        origin_regex = config + '.*'
+                        origin_config = re.search(origin_regex, content).group(0)
+                        new_config = origin_config + ' ' + val
+                        if argv.verbose: print_verbose(origin_config, new_config)
                     else:
                         print("{0} {1:>{width}}".format(config, "Missing value", width=80-len(config)))
-                        orgin_regex = config + '.*'
-                        orgin_config = re.search(orgin_regex, content).group(0)
-                        new_config = orgin_config + ' ' + val
-                        new_config = re.sub(orgin_regex, new_config, content)
-                        if argv.verbose: print_verbose(orgin_config, new_config)
+                        origin_regex = config + '.*'
+                        origin_config = re.search(origin_regex, content).group(0)
+                        new_config = origin_config + ' ' + val
+                        new_config = re.sub(origin_regex, new_config, content)
+                        if argv.verbose: print_verbose(origin_config, new_config)
                 else:
                     print("{0} {1:>{width}}".format(config, "missing", width=80-len(config)))
                     content += '\n' + config + ' ' + val
@@ -249,6 +283,7 @@ class MaprSetup:
             print("Error: " + str(e))
             self.do_spark = False
 
+    #   Compare and Update hadoop-env.sh in /opt/mapr/hadoop/hadoop-X.Y.Z/etc/hadoop or custom path
     def update_hadoop_env(self):
         print("\nChecking hadoop-env.sh")
         try:
@@ -284,6 +319,7 @@ class MaprSetup:
             print("Error: " + str(e))
             self.do_hive = False
 
+    #   Compare and Update mapred-site.xml in /opt/mapr/hadoop/hadoop-X.Y.Z/etc/hadoop or custom path
     def update_mapred_site(self):
         try:
             print("\nChecking mapred-site.xml")
@@ -375,6 +411,7 @@ class MaprSetup:
         else:
             print("unravel.properties not found skip update unravel.properties")
 
+    # Compare and Update yanr-site.xml in /opt/mapr/hadoop/hadoop-X.Y.Z/etc/hadoop or custom path
     def update_yarn_site(self):
         print("\nChecking yarn-site.xml")
         try:
@@ -483,13 +520,30 @@ class MaprSetup:
                     file.close()
                     print('Unravel 4.3.2 detected, updating jdbc driver')
 
+
+# --------------------------------------------- Helper functions
+def print_green(input_str):
+    return '\033[0;32m%s\033[0m' % input_str
+
+
+def print_red(input_str):
+    return '\033[0;31m%s\033[0m' % input_str
+
+
+def print_yellow(input_str):
+    if len(input_str) == 0:
+        input_str = ' '
+    return '\033[0;33m%s\033[0m' % input_str
+
+
 def print_verbose(cur_val, sug_val=None):
-    print('Current Configuration: ' + str(cur_val))
+    print('Current Configuration: ' + print_yellow(str(cur_val)))
     if sug_val:
-        print('Suggest Configuration: ' + str(sug_val))
+        print('Suggest Configuration: ' + print_green(str(sug_val)))
+# --------------------------------------------- Helper functions
 
 
-# Download hive-hook jar and spark sensor zip function shared in MapR and HDP
+# Download hive-hook jar and spark sensor zip function
 def deploy_unravel_sensor(unravel_base_url, hive_version_xyz):
     unravel_sensor_url = 'http://{unravel_base_url}:{unravel_port}/hh/'.format(unravel_base_url=unravel_base_url, unravel_port=argv.unravel_port)
     sensor_deploy_result = []
@@ -556,7 +610,7 @@ def deploy_unravel_sensor(unravel_base_url, hive_version_xyz):
             else:
                 print('Unravel Spark Sensor NOT Install\n')
     except Exception as e:
-        print "Error: ", e, unravel_sensor_url + spark_sensor_zip
+        print("Error: {0} {1}".format(e, unravel_sensor_url + spark_sensor_zip))
         print("Failed to Download Spark Sensor zip")
         sensor_deploy_result.append(False)
     return sensor_deploy_result
@@ -570,23 +624,27 @@ def main():
 
     # if hive sensor install succefully do instrumentation
     if deploy_sensor_result[0]:
-        mapr_setup.update_hive_site()
-        mapr_setup.update_hive_env()
-        mapr_setup.update_hadoop_env()
+        if INSTALL_ALL or argv.hive_only:   # update hive related config files
+            mapr_setup.update_hive_site()
+            mapr_setup.update_hive_env()
+            mapr_setup.update_hadoop_env()
     else:
         print("\nInstall Hive Hook Sensor Failed skip hive instrumentation")
 
     # if spark & MR sensor install succefully do instrumentation
     if deploy_sensor_result[1]:
-        mapr_setup.update_spark_defaults()
-        mapr_setup.update_mapred_site()
+        if INSTALL_ALL or argv.spark_only:  # update spark-defaults.conf
+            mapr_setup.update_spark_defaults()
+        if argv.all or argv.mr_only:  # update mapred-site.xml
+            mapr_setup.update_mapred_site()
     else:
         print("\nInstall Spark & MR Sensor Failed skip spark & MR instrumentation")
 
-    mapr_setup.update_unravel_properties()
+    if INSTALL_ALL or argv.unravel_only:    # update unravel.properties file
+        mapr_setup.update_unravel_properties()
     mapr_setup.update_yarn_site()
     if argv.dry_test:
-        print('\nThe script is running in dry run mode no configuration will be changed')
+        print (print_yellow('\nThe script is running in dry run mode no configuration will be changed'))
     else:
         print('\nUpdaing incorrect or missing configuration')
         sleep(5)

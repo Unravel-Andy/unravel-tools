@@ -1,5 +1,7 @@
 #!/usr/bin/python
-# v1.0.11
+# v1.1.1
+# Unraveldata HDP instrumentation script
+
 import os
 import re
 import json
@@ -10,11 +12,13 @@ import argparse
 from time import time, sleep
 from subprocess import call, Popen, PIPE
 
+# Get Unravel Node hostname
 try:
     unravel_hostname = Popen(['hostname'], stdout=PIPE).communicate()[0].strip()
 except:
     unravel_hostname = None
 
+# Get Ambari Server hostname/IP
 ambari_agent_conf_path = '/etc/ambari-agent/conf/ambari-agent.ini'
 try:
     aa_conf = open(ambari_agent_conf_path, 'r').read()
@@ -38,18 +42,57 @@ parser.add_argument("--ambari-password", help="Ambari Server Login password", de
 parser.add_argument("--dry-run", help="Only Test but will not update anything", dest='dry_test', action='store_true')
 parser.add_argument("-v", "--verbose", help="print current and suggess configuration", action='store_true')
 parser.add_argument("--sensor-only", help="check/upgrade Unravel Sensor Only", dest='sensor_only', action='store_true')
-parser.add_argument("--restart_am", help="Restart Ambari Services", action='store_true')
+parser.add_argument("--restart_am", "--restart-am", help="Restart Ambari Services", action='store_true')
 # parser.add_argument("--ssh_user", help="SSH username for all Cluster Host")
 # parser.add_argument("--ssh_password", help="SSH password for all Cluster Host")
 # parser.add_argument("--ssh_key", help="SSH key full path for all Cluster Host")
+parser.add_argument("--all", "-all", help="install and config all components", action='store_true')
+parser.add_argument("--hive-only", help="install and config hive sensor only", action='store_true')
+parser.add_argument("--spark-only", help="install and config spark sensor only", action='store_true')
+parser.add_argument("--mr-only", help="install and config mr sensor only", action='store_true')
+parser.add_argument("--tez-only", help="install and config tez sensor only", action='store_true')
+parser.add_argument("--unravel-only", help="update unravel.properties file only", action='store_true')
+parser.add_argument("--spark-streaming", "-ss", help="enable spark streaming", action='store_true')
+parser.add_argument("-uninstall", help="uninstall unravel", action='store_true')
+parser.add_argument("--lr-port", help="unravel log receiver port", default=4043)
 argv = parser.parse_args()
 
+# Get Unravel node IP address
 argv.unravel_ip = Popen(['hostname', '-i'], stdout=PIPE).communicate()[0].strip()
+
+# arguments protocol handling
+if len(argv.unravel.split('://')) == 2:
+    argv.unravel_protocol = argv.unravel.split('://')[0]
+    argv.unravel = argv.unravel.split('://')[1]
+else:
+    argv.unravel_protocol = 'http'
+
+if len(argv.ambari.split('://')) == 2:
+    argv.ambari_protocol = argv.ambari.split('://')[0]
+    argv.ambari = argv.ambari.split('://')[1]
+else:
+    argv.ambari_protocol = 'http'
+
+# arguments port handling
 if len(argv.unravel.split(':')) == 2:
     argv.unravel_port = argv.unravel.split(':')[1]
     argv.unravel = argv.unravel.split(':')[0]
 else:
     argv.unravel_port = 3000
+
+if len(argv.ambari.split(':')) == 2:
+    argv.ambari_port = argv.ambari.split(':')[1]
+    argv.ambari = argv.ambari.split(':')[0]
+else:
+    argv.ambari_port = 8080
+
+if argv.hive_only or argv.spark_only or argv.mr_only or argv.tez_only or argv.unravel_only:
+    INSTALL_ALL = False
+else:
+    INSTALL_ALL = True
+
+if argv.all:
+    INSTALL_ALL = True
 
 
 class HDPSetup:
@@ -58,7 +101,7 @@ class HDPSetup:
         self.hive_version_xyz = argv.hive_ver.split('.')
         self.spark_version_xyz = argv.spark_ver.split('.')
         self.unravel_base_url = argv.unravel
-        self.ambari_api_url = "http://{0}:8080/api/v1/".format(argv.ambari)
+        self.ambari_api_url = "{1}://{0}:{2}/api/v1/".format(argv.ambari, argv.ambari_protocol, argv.ambari_port)
         self.configs = self.generate_configs(argv.unravel)
         self.configs_ip = self.generate_configs(argv.unravel_ip)
         self.do_hive = True
@@ -68,8 +111,14 @@ class HDPSetup:
             'desired_configs']
         self.configs_base_url = 'clusters/' + self.cluster_name + '/configurations'
 
+    #   Input: Unravel host ip or hostname
+    #   Return:  dict of all the configurations
+    #   Description: Generate all the configurations needed for Unravel HDP Setup
+    #
     def generate_configs(self, unravel_host):
         configs = {}
+        agent_path = '/usr/local/unravel-agent'
+        client_path = '/usr/local/unravel_client'
         configs['hive-site'] = {
             'hive.exec.driver.run.hooks': 'com.unraveldata.dataflow.hive.hook.HiveDriverHook',
             'com.unraveldata.hive.hdfs.dir': '/user/unravel/HOOK_RESULT_DIR',
@@ -79,36 +128,35 @@ class HDPSetup:
             'hive.exec.post.hooks': 'com.unraveldata.dataflow.hive.hook.HivePostHook',
             'hive.exec.failure.hooks': 'com.unraveldata.dataflow.hive.hook.HiveFailHook'
         }
-        configs['hive-env'] = 'export AUX_CLASSPATH=${AUX_CLASSPATH}:/usr/local/unravel_client/unravel-hive-%s.%s.0-hook.jar' % (
-        self.hive_version_xyz[0], self.hive_version_xyz[1])
-        configs['hadoop-env'] = 'export HADOOP_CLASSPATH=${HADOOP_CLASSPATH}:/usr/local/unravel_client/unravel-hive-%s.%s.0-hook.jar' % (
-        self.hive_version_xyz[0], self.hive_version_xyz[1])
+        configs['hive-env'] = 'export AUX_CLASSPATH=${{AUX_CLASSPATH}}:{0}/unravel-hive-{1}.{2}.0-hook.jar'.format(client_path, self.hive_version_xyz[0], self.hive_version_xyz[1])
+        configs['hadoop-env'] = 'export HADOOP_CLASSPATH=${{HADOOP_CLASSPATH}}:{0}/unravel-hive-{1}.{2}.0-hook.jar'.format(client_path, self.hive_version_xyz[0], self.hive_version_xyz[1])
         if re.search('1.[6-9]', argv.spark_ver):
             configs['spark-defaults'] = {
                 'spark.eventLog.dir':'hdfs:///spark-history',
                 'spark.history.fs.logDirectory':'hdfs:///spark-history',
-                'spark.unravel.server.hostport': unravel_host + ':4043',
-                'spark.driver.extraJavaOptions': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=driver' % (
-                    re.search('1.[6-9]', argv.spark_ver).group(0)),
-                'spark.executor.extraJavaOptions': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=executor' % (
-                    re.search('1.[6-9]', argv.spark_ver).group(0))
+                'spark.unravel.server.hostport': unravel_host + ':%s' % argv.lr_port,
+                'spark.driver.extraJavaOptions': '-javaagent:{0}/jars/btrace-agent.jar=libs=spark-{1},config=driver'.format(agent_path, re.search('1.[6-9]', argv.spark_ver).group(0)),
+                'spark.executor.extraJavaOptions': '-javaagent:{0}/jars/btrace-agent.jar=libs=spark-{1},config=executor'.format(agent_path, re.search('1.[6-9]', argv.spark_ver).group(0))
             }
+            if argv.spark_streaming:
+                configs['spark-defaults']['spark.driver.extraJavaOptions'] = '-javaagent:{0}/jars/btrace-agent.jar=script=DriverProbe.class:SQLProbe.class:StreamingProbe.class,config=driver,libs=spark-{1}'.format(agent_path, re.search('1.[6-9]', argv.spark_ver).group(0))
         if re.search('2.[0-9]', argv.spark_ver):
             configs['spark2-defaults'] = {
                 'spark.eventLog.dir':'hdfs:///spark-history',
                 'spark.history.fs.logDirectory':'hdfs:///spark-history',
-                'spark.unravel.server.hostport': unravel_host + ':4043',
-                'spark.driver.extraJavaOptions': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=driver' % (
-                    re.search('2.[0-9]', argv.spark_ver).group(0)),
-                'spark.executor.extraJavaOptions': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-%s,config=executor' % (
-                    re.search('2.[0-9]', argv.spark_ver).group(0))
+                'spark.unravel.server.hostport': unravel_host + ':%s' % argv.lr_port,
+                'spark.driver.extraJavaOptions': '-javaagent:{0}/jars/btrace-agent.jar=libs=spark-{1},config=driver'.format(agent_path, re.search('2.[0-9]', argv.spark_ver).group(0)),
+                'spark.executor.extraJavaOptions': '-javaagent:{0}/jars/btrace-agent.jar=libs=spark-{1},config=executor'.format(agent_path, re.search('2.[0-9]', argv.spark_ver).group(0))
             }
+            if argv.spark_streaming:
+                configs['spark2-defaults']['spark.driver.extraJavaOptions'] = '-javaagent:{0}/jars/btrace-agent.jar=script=DriverProbe.class:SQLProbe.class:StreamingProbe.class,config=driver,libs=spark-{1}'.format(
+                    agent_path, re.search('2.[0-9]', argv.spark_ver).group(0))
         configs['mapred-site'] = {
-            'yarn.app.mapreduce.am.command-opts': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=%s:4043' % unravel_host,
+            'yarn.app.mapreduce.am.command-opts': '-javaagent:{0}/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport={1}:{2}'.format(agent_path, unravel_host, argv.lr_port),
             'mapreduce.task.profile': 'true',
             'mapreduce.task.profile.maps': '0-5',
             'mapreduce.task.profile.reduces': '0-5',
-            'mapreduce.task.profile.params': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=%s:4043' % unravel_host
+            'mapreduce.task.profile.params': '-javaagent:{0}/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport={1}:{2}'.format(agent_path, unravel_host, argv.lr_port)
         }
         configs['unravel-properties'] = {
             "com.unraveldata.job.collector.done.log.base": "/mr-history/done",
@@ -117,14 +165,22 @@ class HDPSetup:
             "com.unraveldata.sensor.tasks.disabled": "iw"
         }
         configs['tez-site'] = {
-            'tez.am.launch.cmd-opts': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr,config=tez -Dunravel.server.hostport=%s:4043' % unravel_host,
-            'tez.task.launch.cmd-opts': '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr,config=tez -Dunravel.server.hostport=%s:4043' % unravel_host
+            'tez.am.launch.cmd-opts': '-javaagent:{0}/jars/btrace-agent.jar=libs=mr,config=tez -Dunravel.server.hostport={1}:{2}'.format(agent_path, unravel_host, argv.lr_port),
+            'tez.task.launch.cmd-opts': '-javaagent:{0}/jars/btrace-agent.jar=libs=mr,config=tez -Dunravel.server.hostport={1}:{2}'.format(agent_path, unravel_host, argv.lr_port)
         }
+
+        if argv.lr_port != 4043:
+            configs['hive-site']['com.unraveldata.live.logreceiver.port'] = argv.lr_port
+            configs['unravel-properties']['com.unraveldata.live.logreceiver.port'] = argv.lr_port
         return configs
 
+    #   Return: list of yarn timeline address
+    #
     def get_yarn_timeline(self):
         return self.read_configs(self.configs_base_url + '?type={0}&tag={1}'.format('yarn-site', self.current_config_tag['yarn-site']['tag']))['items'][0]['properties']['yarn.timeline-service.webapp.address'].split(':')
 
+    #   Return: string of yarn log dir
+    #
     def get_yarn_log_dir(self):
         log_dir = self.read_configs(self.configs_base_url + '?type={0}&tag={1}'.format('yarn-site',
                                                                                     self.current_config_tag[
@@ -136,12 +192,18 @@ class HDPSetup:
             0]['properties']['yarn.nodemanager.remote-app-log-dir-suffix']
         return '%s/*/%s' % (log_dir, log_suffix)
 
+    #   Return: string of mapr done dir
+    #
     def get_mapr_done_dir(self):
         return self.read_configs(self.configs_base_url + '?type={0}&tag={1}'.format('mapred-site',
                                                                                     self.current_config_tag[
                                                                                         'mapred-site']['tag']))['items'][
             0]['properties']['mapreduce.jobhistory.done-dir']
 
+    #   Input: API endpoint, if full path api full url
+    #   Return: Json parsed configurations
+    #   Description: Read configuration from Ambari API
+    #
     def read_configs(self, api_path, full_path=False, retry=0):
         try:
             if full_path:
@@ -169,12 +231,16 @@ class HDPSetup:
                 print("Error: Unable to reach Ambari Server")
                 exit()
 
+    #   Restart Ambari Staled services
+    #
     def restart_services(self):
         if not argv.dry_test:
             print("\nRestart Ambari Services")
-            restart_command = 'curl -u {0}:\'{1}\' -i -H \'X-Requested-By: ambari\' -X POST -d \'{{\"RequestInfo\": {{\"command\":\"RESTART\",\"context\" :\"Unravel request: Restart Services\",\"operation_level\":\"host_component\"}},\"Requests/resource_filters\":[{{\"hosts_predicate\":\"HostRoles/stale_configs=true\"}}]}}\' http://{2}:8080/api/v1/clusters/{3}/requests >/tmp/Restart.out 2>/tmp/Restart.err'.format(argv.ambari_user, argv.ambari_pass, argv.ambari, self.cluster_name)
+            restart_command = 'curl -u {0}:\'{1}\' -i -H \'X-Requested-By: ambari\' -X POST -d \'{{\"RequestInfo\": {{\"command\":\"RESTART\",\"context\" :\"Unravel request: Restart Services\",\"operation_level\":\"host_component\"}},\"Requests/resource_filters\":[{{\"hosts_predicate\":\"HostRoles/stale_configs=true\"}}]}}\' {4}://{2}:{5}/api/v1/clusters/{3}/requests >/tmp/Restart.out 2>/tmp/Restart.err'.format(argv.ambari_user, argv.ambari_pass, argv.ambari, self.cluster_name, argv.ambari_protocol, argv.ambari_port)
             call_result = call(restart_command, shell=True)
 
+    #   Compare and Update properties in Advanced/Custom hive-site
+    #
     def update_hive_site(self):
         try:
             print("\nChecking hive-site.xml")
@@ -182,7 +248,6 @@ class HDPSetup:
             hive_site_configs = self.read_configs(self.configs_base_url + '?type={0}&tag={1}'.format(
                 config_type, self.current_config_tag[config_type]['tag']))['items'][0]['properties']
             config_changed = False
-
             if not self.do_hive:
                 return
 
@@ -190,28 +255,49 @@ class HDPSetup:
                 val_ip = self.configs_ip[config_type][config]
                 cur_config = hive_site_configs.get(config, None)
                 if cur_config is None:
-                    print_format(config, print_red("missing"))
-                    config_changed = True
-                    hive_site_configs[config] = val
+                    if argv.uninstall:
+                        print_format(config, print_green("Not Found"))
+                    else:
+                        print_format(config, print_red("missing"))
+                        config_changed = True
+                        hive_site_configs[config] = val
                     if argv.verbose:
                         print_verbose(cur_config, val)
                 elif val in cur_config or val_ip in cur_config:
-                    print_format(config, print_green("No change needed"))
+                    if argv.uninstall:  # Remove property if the correct property found
+                        print_format(config, print_green("will be removed"))
+                        config_changed = True
+                        remove_regex = ',*%s|%s,*' % (val, val_ip)
+                        if re.search('%s,' % val, cur_config) and re.match('hive.exec.(pre|post|failure).hooks', config):
+                            hive_site_configs[config] = re.sub(remove_regex, ',', cur_config)
+                        else:
+                            hive_site_configs[config] = re.sub(remove_regex, '', cur_config)
+                    else:
+                        print_format(config, print_green("No change needed"))
                     if argv.verbose:
                         print_verbose(cur_config)
                 elif re.match('hive.exec.(pre|post|failure).hooks', config) and val not in cur_config:
-                    print_format(config, print_red("Missing value"))
-                    hive_site_configs[config] += ',' + val
-                    config_changed = True
+                    if argv.uninstall:
+                        print_format(config, print_green("Not Found"))
+                        val = ''
+                    else:
+                        print_format(config, print_red("Missing value"))
+                        hive_site_configs[config] += ',' + val
+                        config_changed = True
                     if argv.verbose:
-                        print_verbose(cur_config, hive_site_configs[config])
+                        print_verbose(cur_config, val)
                 else:
-                    print_format(config, print_red("Missing value"))
-                    hive_site_configs[config] = val
-                    config_changed = True
+                    if argv.uninstall:
+                        print_format(config, print_green("Not Found"))
+                        val = ''
+                    else:
+                        print_format(config, print_red("Missing value"))
+                        hive_site_configs[config] = val
+                        config_changed = True
                     if argv.verbose:
                         print_verbose(cur_config, val)
                 sleep(0.5)
+
             if config_changed and not argv.dry_test:
                 print("updating %s" % config_type)
                 self.update_configs(config_type, hive_site_configs)
@@ -220,30 +306,45 @@ class HDPSetup:
         except Exception as e:
             print("Error: " + str(e))
 
+    # Compare and Update hive-env template in Advanced hive-env
+    #
     def update_hive_env(self):
         print("\nChecking hive-env.sh")
         try:
             config_type = 'hive-env'
+            config_changed = False
             hive_env_configs = self.read_configs(self.configs_base_url + '?type={0}&tag={1}'.format(
                 config_type, self.current_config_tag[config_type]['tag']))['items'][0]['properties']
 
-            if self.do_hive and self.configs['hive-env'].split(':')[1] in hive_env_configs['content']:
-                print_format('AUTH_CLASSPATH', print_green("No change needed"))
+            if self.do_hive and self.configs[config_type].split(':')[1] in hive_env_configs['content']:
+                if argv.uninstall:
+                    print_format('AUTH_CLASSPATH', print_green("will be removed"))
+                    config_changed = True
+                    remove_regex = '\s*%s\s*' % self.configs['hive-env'].replace('/', '\/').replace('$', '\$')
+                    hive_env_configs['content'] = re.sub(remove_regex, '', hive_env_configs['content'])
+                else:
+                    print_format('AUTH_CLASSPATH', print_green("No change needed"))
                 if argv.verbose:
                     print_verbose(self.configs['hive-env'])
             else:
-                print_format('AUX_CLASSPATH', print_red("missing"))
-                hive_env_configs['content'] += '\n%s\n' % self.configs[config_type]
-                if argv.verbose:
-                    print_verbose('', self.configs['hive-env'])
-                if not argv.dry_test:
-                    print("updating %s" % config_type)
-                    self.update_configs(config_type, hive_env_configs)
-                    sleep(1)
-                    print('Update Successful!')
+                if argv.uninstall:
+                    print_format('AUTH_CLASSPATH', print_green("Not Found"))
+                else:
+                    print_format('AUX_CLASSPATH', print_red("missing"))
+                    hive_env_configs['content'] += '\n%s\n' % self.configs[config_type]
+                    config_changed = True
+                    if argv.verbose:
+                        print_verbose('', self.configs['hive-env'])
+            if config_changed and not argv.dry_test:
+                print("updating %s" % config_type)
+                self.update_configs(config_type, hive_env_configs)
+                sleep(2)
+                print('Update Successful!')
         except Exception as e:
             print("Error: " + str(e))
 
+    #   Compare and Update Advanced/Custom spark-defaults
+    #
     def update_spark_defaults(self, config_type, version):
         try:
             print("\nChecking %s.conf" % config_type)
@@ -255,9 +356,13 @@ class HDPSetup:
                 val_ip = self.configs_ip[config_type][config]
                 cur_config = spark_defaults_configs.get(config, None)
                 if cur_config is None:
-                    print_format(config, print_red("missing"))
-                    config_changed = True
-                    spark_defaults_configs[config] = val
+                    if argv.uninstall:
+                        print_format(config, print_green("Not Found"))
+                        val = ''
+                    else:
+                        print_format(config, print_red("missing"))
+                        config_changed = True
+                        spark_defaults_configs[config] = val
                     if argv.verbose:
                         print_verbose(cur_config, val)
                 elif config == 'spark.eventLog.dir' or config == 'spark.history.fs.logDirectory':
@@ -267,26 +372,42 @@ class HDPSetup:
                                 self.configs['unravel-properties']["com.unraveldata.spark.eventlog.location"] += ',' + cur_config
                         else:
                             self.configs['unravel-properties']["com.unraveldata.spark.eventlog.location"] = cur_config
-                elif val in cur_config or val_ip in cur_config or 'libs=spark-%s' % version in cur_config:
-                    print_format(config, print_green("No change needed"))
+                elif val in cur_config or val_ip in cur_config or ('libs=spark-%s' % version in cur_config and not argv.spark_streaming):
+                    if argv.uninstall:
+                        print_format(config, print_green("will be removed"))
+                        config_changed = True
+                        remove_regex = ('\s*%s|%s\s*' % (val, val_ip)).replace('/', '\/')
+                        if re.search('%s\s' % val, spark_defaults_configs[config]):
+                            spark_defaults_configs[config] = re.sub(remove_regex, ' ', spark_defaults_configs[config])
+                        else:
+                            spark_defaults_configs[config] = re.sub(remove_regex, '', spark_defaults_configs[config])
+                    else:
+                        print_format(config, print_green("No change needed"))
                     if argv.verbose:
                         print_verbose(cur_config)
                 elif config == 'spark.unravel.server.hostport':
-                    print_format(config, print_red("Missing value"))
-                    config_changed = True
-                    spark_defaults_configs[config] = val
-                    if argv.verbose:
-                        print_verbose(cur_config, val)
-                else:
-                    print_format(config, print_red("Missing value"))
-                    config_changed = True
-                    orgin_regex = '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-[0-9].[0-9],config=(driver|executor)'
-                    if re.search(orgin_regex, spark_defaults_configs[config]):
-                        spark_defaults_configs[config] = re.sub(orgin_regex, val, spark_defaults_configs[config])
+                    if argv.uninstall:
+                        print_format(config, print_green("Not Found"))
+                        val = ''
                     else:
-                        spark_defaults_configs[config] += ' ' + val
-                    if argv.verbose:
-                        print_verbose(cur_config, spark_defaults_configs[config])
+                        print_format(config, print_red("Missing value"))
+                        config_changed = True
+                        spark_defaults_configs[config] = val
+                        if argv.verbose:
+                            print_verbose(cur_config, val)
+                else:
+                    if argv.uninstall:
+                        print_format(config, print_green("Not Found"))
+                    else:
+                        print_format(config, print_red("Missing value"))
+                        config_changed = True
+                        orgin_regex = '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=spark-[0-9].[0-9],config=(driver|executor)'
+                        if re.search(orgin_regex, spark_defaults_configs[config]):
+                            spark_defaults_configs[config] = re.sub(orgin_regex, val, spark_defaults_configs[config])
+                        else:
+                            spark_defaults_configs[config] += ' ' + val
+                        if argv.verbose:
+                            print_verbose(cur_config, spark_defaults_configs[config])
                 sleep(0.5)
             if config_changed and not argv.dry_test:
                 print("updating %s" % config_type)
@@ -296,30 +417,45 @@ class HDPSetup:
         except Exception as e:
             print("Error: " + str(e))
 
+    #   Compare and Update hadoop-evn template in Advanced hadoop-env
+    #
     def update_hadoop_env(self):
         print("\nChecking hadoop-env.sh")
         try:
             config_type = 'hadoop-env'
-            hive_env_configs = self.read_configs(self.configs_base_url + '?type={0}&tag={1}'.format(
+            config_changed = False
+            hadoop_env_configs = self.read_configs(self.configs_base_url + '?type={0}&tag={1}'.format(
                 config_type, self.current_config_tag[config_type]['tag']))['items'][0]['properties']
 
-            if self.do_hive and self.configs['hadoop-env'].split(':')[1] in hive_env_configs['content']:
-                print_format('HADOOP_CLASSPATH', print_green("No change needed"))
+            if self.do_hive and self.configs['hadoop-env'].split(':')[1] in hadoop_env_configs['content']:
+                if argv.uninstall:
+                    print_format('HADOOP_CLASSPATH', print_green("will be removed"))
+                    config_changed = True
+                    remove_regex = '\s*%s\s*' % self.configs[config_type].replace('/', '\/').replace('$', '\$')
+                    hadoop_env_configs['content'] = re.sub(remove_regex, '', hadoop_env_configs['content'])
+                else:
+                    print_format('HADOOP_CLASSPATH', print_green("No change needed"))
                 if argv.verbose:
                     print_verbose(self.configs['hadoop-env'])
             else:
-                print_format('HADOOP_CLASSPATH', print_red("missing"))
-                if argv.verbose:
-                    print_verbose('', self.configs['hadoop-env'])
-                if not argv.dry_test:
-                    hive_env_configs['content'] += '\n%s\n' % self.configs[config_type]
-                    print("updating %s" % config_type)
-                    self.update_configs(config_type, hive_env_configs)
-                    sleep(1)
-                    print('Update Successful!')
+                if argv.uninstall:
+                    print_format('HADOOP_CLASSPATH', print_green("Not Found"))
+                else:
+                    print_format('HADOOP_CLASSPATH', print_red("missing"))
+                    hadoop_env_configs['content'] += '\n%s\n' % self.configs[config_type]
+                    config_changed = True
+                    if argv.verbose:
+                        print_verbose('', self.configs['hadoop-env'])
+            if config_changed and not argv.dry_test:
+                print("updating %s" % config_type)
+                self.update_configs(config_type, hadoop_env_configs)
+                sleep(1)
+                print('Update Successful!')
         except Exception as e:
             print("Error: " + str(e))
 
+    #   Compare and Update properties in Custom mapred-site
+    #
     def update_mapred_site(self):
         try:
             print("\nChecking mapred-site.xml")
@@ -332,29 +468,49 @@ class HDPSetup:
                 val_ip = self.configs_ip[config_type][config]
                 cur_config = mapred_site_configs.get(config, None)
                 if cur_config is None:
-                    print_format(config, print_red("missing"))
-                    config_changed = True
-                    mapred_site_configs[config] = val
+                    if argv.uninstall:
+                        print_format(config, print_green("Not Found"))
+                        val = ''
+                    else:
+                        print_format(config, print_red("missing"))
+                        config_changed = True
+                        mapred_site_configs[config] = val
                     if argv.verbose:
                         print_verbose(cur_config, val)
                 elif val in cur_config or val_ip in cur_config:
-                    print_format(config, print_green("No change needed"))
+                    if argv.uninstall:
+                        print_format(config, print_green("will be removed"))
+                        config_changed = True
+                        remove_regex = '\s*%s|%s\s*' % (val, val_ip)
+                        if re.search('%s\s' % val, cur_config) and config == ('yarn.app.mapreduce.am.command-opts' or 'mapreduce.task.profile.params'):
+                            mapred_site_configs[config] = re.sub(remove_regex, ' ', mapred_site_configs[config])
+                        else:
+                            mapred_site_configs[config] = re.sub(remove_regex, '', mapred_site_configs[config])
+                    else:
+                        print_format(config, print_green("No change needed"))
                     if argv.verbose:
                         print_verbose(cur_config)
                 elif not config == ('yarn.app.mapreduce.am.command-opts' or 'mapreduce.task.profile.params'):
-                    print_format(config, print_red("Missing value"))
-                    config_changed = True
-                    mapred_site_configs[config] = val
+                    if argv.uninstall:
+                        print_format(config, print_green("Not Found"))
+                        val = ''
+                    else:
+                        print_format(config, print_red("Missing value"))
+                        config_changed = True
+                        mapred_site_configs[config] = val
                     if argv.verbose:
                         print_verbose(cur_config, val)
                 else:
-                    print_format(config, print_red("Missing value"))
-                    config_changed = True
-                    orgin_regex = '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=.*?:4043'
-                    if re.search(orgin_regex, mapred_site_configs[config]):
-                        mapred_site_configs[config] = re.sub(orgin_regex, val, mapred_site_configs[config])
+                    if argv.uninstall:
+                        print_format(config, print_green("Not Found"))
                     else:
-                        mapred_site_configs[config] += ' ' + val
+                        print_format(config, print_red("Missing value"))
+                        config_changed = True
+                        orgin_regex = '-javaagent:/usr/local/unravel-agent/jars/btrace-agent.jar=libs=mr -Dunravel.server.hostport=.*?:%s' % argv.lr_port
+                        if re.search(orgin_regex, mapred_site_configs[config]):
+                            mapred_site_configs[config] = re.sub(orgin_regex, val, mapred_site_configs[config])
+                        else:
+                            mapred_site_configs[config] += ' ' + val
                     if argv.verbose:
                         print_verbose(cur_config, mapred_site_configs[config])
                 sleep(0.5)
@@ -366,6 +522,8 @@ class HDPSetup:
         except Exception as e:
             print("Error: " + str(e))
 
+    #   Description: Compare and Update properties in Advanced tez-site
+    #
     def update_tez_site(self):
         print("\nChecking tez-site.xml")
         try:
@@ -378,25 +536,41 @@ class HDPSetup:
                 val_ip = self.configs_ip[config_type][config]
                 cur_config = tez_site_configs.get(config, None)
                 if cur_config is None:
-                    print_format(config, print_red("missing"))
-                    config_changed = True
-                    tez_site_configs[config] = val
+                    if argv.uninstall:
+                        print_format(config, print_green("Not Found"))
+                        val = ''
+                    else:
+                        print_format(config, print_red("missing"))
+                        config_changed = True
+                        tez_site_configs[config] = val
                     if argv.verbose:
                         print_verbose(cur_config, val)
                 elif val in cur_config or val_ip in cur_config:
-                    print_format(config, print_green("No change needed"))
+                    if argv.uninstall:
+                        print_format(config, print_green("will be removed"))
+                        config_changed = True
+                        remove_regex = '\s*%s|%s\s*' % (val, val_ip)
+                        if re.search('%s\s' % val, cur_config):
+                            tez_site_configs[config] = re.sub(remove_regex, ' ', tez_site_configs[config])
+                        else:
+                            tez_site_configs[config] = re.sub(remove_regex, '', tez_site_configs[config])
+                    else:
+                        print_format(config, print_green("No change needed"))
                     if argv.verbose:
                         print_verbose(cur_config)
                 else:
-                    print_format(config, print_red("Missing value"))
-                    config_changed = True
-                    orgin_regex = '-javaagent:/usr/local/unravel-agent.*?:4043'
-                    if re.search(orgin_regex, tez_site_configs[config]):
-                        tez_site_configs[config] = re.sub(orgin_regex, val, tez_site_configs[config])
+                    if argv.uninstall:
+                        print_format(config, print_green("Not Found"))
                     else:
-                        tez_site_configs[config] += ' ' + val
-                    if argv.verbose:
-                        print_verbose(cur_config, tez_site_configs[config])
+                        print_format(config, print_red("Missing value"))
+                        config_changed = True
+                        orgin_regex = '-javaagent:/usr/local/unravel-agent.*?:%s' % argv.lr_port
+                        if re.search(orgin_regex, tez_site_configs[config]):
+                            tez_site_configs[config] = re.sub(orgin_regex, val, tez_site_configs[config])
+                        else:
+                            tez_site_configs[config] += ' ' + val
+                        if argv.verbose:
+                            print_verbose(cur_config, tez_site_configs[config])
                 sleep(0.5)
             # Insert yarn.timeline.webapp property in unravel.properties
             yarn_timeline_webapp = self.get_yarn_timeline()
@@ -450,6 +624,7 @@ class HDPSetup:
                         new_config += '%s=%s\n' % (config, val)
                         if argv.verbose:
                             print_verbose(None, config + '=' + val)
+                    sleep(0.5)
                 if len(new_config.split('\n')) > 1 and not argv.dry_test:
                     print('Updating Unravel Properties')
                     with open(unravel_properties_path, 'a') as f:
@@ -463,6 +638,8 @@ class HDPSetup:
         else:
             print("unravel.properties not found skip update unravel.properties")
 
+    # Update configuration via Ambari API
+    #
     def update_configs(self, config_type, new_properties):
         try:
             new_tag = 'version' + str(int(time()))
@@ -486,6 +663,8 @@ class HDPSetup:
             print(e)
             pass
 
+    #   Description: Update mysql JDBC driver to mariadb JDBC driver in Unravel 4.3.2
+    #
     def check_unravel_version(self):
         unravel_properties_path = '/usr/local/unravel/etc/unravel.properties'
         unravel_version_path = '/usr/local/unravel/ngui/www/version.txt'
@@ -510,6 +689,7 @@ class HDPSetup:
                         print('Unravel 4.3.2 detected, updating jdbc driver')
 
 
+# --------------------------------------------- Helper functions
 def print_format(config_name, content):
     print("{0} {1:>{width}}".format(config_name, content, width=80 - len(config_name)))
 
@@ -523,6 +703,8 @@ def print_red(input_str):
 
 
 def print_yellow(input_str):
+    if len(input_str) == 0:
+        input_str = ' '
     return '\033[0;33m%s\033[0m' % input_str
 
 
@@ -530,11 +712,12 @@ def print_verbose(cur_val, sug_val=None):
     print('Current Configuration: ' + print_yellow(str(cur_val)))
     if sug_val:
         print('Suggest Configuration: ' + print_green(str(sug_val)))
+# --------------------------------------------- Helper functions
 
 
 # Download hive-hook jar and spark sensor zip function shared in MapR and HDP
 def deploy_unravel_sensor(unravel_base_url, hive_version_xyz):
-    unravel_sensor_url = 'http://{unravel_base_url}:3000/hh/'.format(unravel_base_url=unravel_base_url)
+    unravel_sensor_url = '{protocol}://{unravel_base_url}:{port}/hh/'.format(unravel_base_url=unravel_base_url, port=argv.unravel_port, protocol=argv.unravel_protocol)
     sensor_deploy_result = []
     # Download Hive Hook jar
     try:
@@ -613,26 +796,33 @@ def main():
         exit(0)
     # if hive sensor install succefully do instrumentation
     if deploy_sensor_result[0] or argv.dry_test:
-        hdp_setup.update_hive_site()
-        hdp_setup.update_hive_env()
-        hdp_setup.update_hadoop_env()
+        if INSTALL_ALL or argv.hive_only:
+            hdp_setup.update_hive_site()
+            hdp_setup.update_hive_env()
+            hdp_setup.update_hadoop_env()
     else:
         print("\nInstall Hive Hook Sensor Failed skip hive instrumentation")
 
     # if spark & MR sensor install succefully do instrumentation
     if deploy_sensor_result[1] or argv.dry_test:
         if re.search('1.[6-9]', argv.spark_ver):
-            config_type = 'spark-defaults'
-            hdp_setup.update_spark_defaults(config_type, re.search('1.[6-9]', argv.spark_ver).group(0))
+            if INSTALL_ALL or argv.spark_only:
+                config_type = 'spark-defaults'
+                hdp_setup.update_spark_defaults(config_type, re.search('1.[6-9]', argv.spark_ver).group(0))
         if re.search('2.[0-9]', argv.spark_ver):
-            config_type = 'spark2-defaults'
-            hdp_setup.update_spark_defaults(config_type, re.search('2.[0-9]', argv.spark_ver).group(0))
-        hdp_setup.update_mapred_site()
-        hdp_setup.update_tez_site()
+            if INSTALL_ALL or argv.spark_only:
+                config_type = 'spark2-defaults'
+                hdp_setup.update_spark_defaults(config_type, re.search('2.[0-9]', argv.spark_ver).group(0))
+        if argv.mr_only or argv.all:
+            hdp_setup.update_mapred_site()
+        if INSTALL_ALL or argv.tez_only:
+            hdp_setup.update_tez_site()
     else:
         print("\nInstall Spark & MR Sensor Failed skip spark & MR instrumentation")
-    hdp_setup.update_unravel_properties()
-    hdp_setup.check_unravel_version()
+
+    if INSTALL_ALL or argv.unravel_only:
+        hdp_setup.update_unravel_properties()
+        hdp_setup.check_unravel_version()
 
     if argv.restart_am:
         hdp_setup.restart_services()

@@ -180,9 +180,9 @@ def check_hdp_config():
         tez_site = get_config('tez-site')
         for config, val in unravel_configs['tez-site'].iteritems():
             if val in tez_site.get(config, '') or unravel_configs_ip['tez-site'][config] in tez_site.get(config, ''):
-                printGreen(config + ': ' + tez_site[config])
+                print(config + ': ' + printGreen(tez_site[config], do_print=False))
             else:
-                printYellow(config + ': \nCurrent Value: ' + tez_site.get(config, ''))
+                print(config + ': ' + printYellow('\nCurrent Value: ' + tez_site.get(config, '')))
                 printYellow('Suggest Value: {suggest_val}'.format(suggest_val=val))
     except Exception as e:
         printRed(e)
@@ -287,7 +287,7 @@ def get_config(config_name):
         config = json.loads(session.get(config_latest_version_url).text)
         return config['items'][0]['properties']
     except Exception as e:
-        printRed(e)
+        # print(e)
         return None
 
 
@@ -381,7 +381,7 @@ def get_daemon_status():
                 print(daemon[0] + ': %s' % message )
     except Exception as e:
         print(e)
-        if requests.get(unravel_base_url + 'clusters').status_code == 200:
+        if login_token:
             printRed('\nAble to connect to UI but unable to get Daemon Status Please Check Unravel Login credentials or try again')
         else:
             printRed('\n[Error]: Couldn\'t connect to Unravel Daemons UI\nPlease Check /usr/local/unravel/logs/ and /var/log/ for unravel_*.log')

@@ -1,6 +1,7 @@
 #!/usr/bin/python
 """
-v 1.0.7
+v 1.1.1
+Unraveldata CDH instrumentation script
 """
 import os
 import re
@@ -11,11 +12,13 @@ import argparse
 from time import sleep
 from subprocess import Popen, PIPE
 
+# Get Unravel Node hostname
 try:
     unravel_hostname = Popen(['hostname'], stdout=PIPE).communicate()[0].strip()
 except:
     unravel_hostname = None
 
+# Get Cloudera Manager Server hostname/IP
 cloudera_agent_conf_path = '/etc/cloudera-scm-agent/config.ini'
 try:
     ca_conf = open(cloudera_agent_conf_path, 'r').read()
@@ -39,27 +42,65 @@ parser.add_argument("--dry-run", help="Only Test but will not update anything", 
 parser.add_argument("-v", "--verbose", help="print current and suggess configuration", action='store_true')
 parser.add_argument("--sensor-only", help="check/upgrade Unravel Sensor Only", dest='sensor_only', action='store_true')
 parser.add_argument("--cluster-name", help="Cloudera Cluster Name default is the first cluster")
-parser.add_argument("--restart-cm", help="Restart Cloudera manager stale services", dest='restart_cm', action='store_true')
+parser.add_argument("--restart-cm", "--restart_cm", help="Restart Cloudera manager stale services", dest='restart_cm', action='store_true')
+parser.add_argument("--all", "-all", help="install and config all components", action='store_true')
+parser.add_argument("--hive-only", help="install and config hive sensor only", action='store_true')
+parser.add_argument("--spark-only", help="install and config spark sensor only", action='store_true')
+parser.add_argument("--mr-only", help="install and config mr sensor only", action='store_true')
+parser.add_argument("--unravel-only", help="update unravel.properties file only", action='store_true')
+parser.add_argument("--spark-streaming", "-ss", help="enable spark streaming", action='store_true')
+parser.add_argument("-uninstall", help="uninstall unravel", action='store_true')
+parser.add_argument("--lr-port", help="unravel log receiver port", default=4043)
 argv = parser.parse_args()
 
 sleep_time = 0.5
+# Get Unravel node IP address
 argv.unravel_ip = Popen(['hostname', '-i'], stdout=PIPE).communicate()[0].strip()
+
+# arguments protocol handling
+if len(argv.unravel.split('://')) == 2:
+    argv.unravel_protocol = argv.unravel.split('://')[0]
+    argv.unravel = argv.unravel.split('://')[1]
+else:
+    argv.unravel_protocol = 'http'
+
+if len(argv.cm.split('://')) == 2:
+    argv.cm_protocol = argv.cm.split('://')[0]
+    argv.cm = argv.cm.split('://')[1]
+else:
+    argv.cm_protocol = 'http'
+
+# arguments port handling
 if len(argv.unravel.split(':')) == 2:
     argv.unravel_port = argv.unravel.split(':')[1]
     argv.unravel = argv.unravel.split(':')[0]
 else:
     argv.unravel_port = 3000
 
+if len(argv.cm.split(':')) == 2:
+    argv.cm_port = argv.cm.split(':')[1]
+    argv.cm = argv.cm.split(':')[0]
+else:
+    argv.cm_port = 7180
+
+# partial setup check
+if argv.hive_only or argv.spark_only or argv.mr_only or argv.unravel_only:
+    INSTALL_ALL = False
+else:
+    INSTALL_ALL = True
+
+if argv.all:
+    INSTALL_ALL = True
+
 
 class CDHSetup():
     def __init__(self):
-        self.api_url = 'http://%s:7180/api/v11' % argv.cm
+        self.api_url = '%s://%s:%s/api/v11' % (argv.cm_protocol, argv.cm, argv.cm_port)
         self.api_clusters_url = self.api_url + '/clusters'
         self.api_cm_url = self.api_url + '/cm'
         self.spark_ver_xy = None
         self.spark2_ver_xy = None
         self.cm_cred = base64.b64encode('%s:%s' % (argv.cm_user, argv.cm_pass))
-        self.hosts_list = self.get_hosts_list()
         if argv.cluster_name:
             self.cluster_name = argv.cluster_name
             self.cdh_ver_xyz = self.get_requests(self.api_clusters_url)['items'][0]['fullVersion']
@@ -87,7 +128,7 @@ class CDHSetup():
         print('\nChecking Parcel configuration')
         sleep(1)
         cdh_ver_xy = 'cdh%s.%s' % (self.cdh_ver_xyz.split('.')[0], self.cdh_ver_xyz.split('.')[1])
-        unravel_parcel_url = 'http://%s:%s/parcels/%s' % (argv.unravel, argv.unravel_port, cdh_ver_xy)
+        unravel_parcel_url = '%s://%s:%s/parcels/%s' % (argv.unravel_protocol, argv.unravel, argv.unravel_port, cdh_ver_xy)
         cm_configs = self.get_requests('%s/config' % self.api_cm_url)['items']
 
         parcel_api_name = 'REMOTE_PARCEL_REPO_URLS'
@@ -99,8 +140,12 @@ class CDHSetup():
                     parcel_api_val = config['value'] + ',' + unravel_parcel_url
                     self.put_requests('%s/config' % self.api_cm_url, parcel_api_name, parcel_api_val)
 
+    #   Input: Unravel host ip or hostname
+    #   Return:  dict of all the configurations
+    #   Description: Generate all the configurations needed for Unravel CDH Setup
     def generate_configs(self, unravel_host):
         configs = {}
+        sensor_path = '/opt/cloudera/parcels/UNRAVEL_SENSOR'
         configs['hive_client_config_safety_valve'] = {
             'hive.exec.driver.run.hooks': 'com.unraveldata.dataflow.hive.hook.HiveDriverHook',
             'com.unraveldata.hive.hdfs.dir': '/user/unravel/HOOK_RESULT_DIR',
@@ -110,34 +155,42 @@ class CDHSetup():
             'hive.exec.post.hooks': 'com.unraveldata.dataflow.hive.hook.HivePostHook',
             'hive.exec.failure.hooks': 'com.unraveldata.dataflow.hive.hook.HiveFailHook'
         }
-        configs['hive_client_env_safety_valve'] = 'AUX_CLASSPATH=${AUX_CLASSPATH}:/opt/cloudera/parcels/UNRAVEL_SENSOR/lib/java/unravel_hive_hook.jar'
+        configs['hive_client_env_safety_valve'] = 'AUX_CLASSPATH=${AUX_CLASSPATH}:%s/lib/java/unravel_hive_hook.jar' % sensor_path
         if self.has_spark:
             self.spark_ver_xy = re.search('1.[6-9]', argv.spark_ver).group(0).split('.')
             configs['spark-conf/spark-defaults.conf_client_config_safety_valve'] = {
-                'spark.unravel.server.hostport': '%s:4043' % unravel_host,
-                'spark.driver.extraJavaOptions': '-javaagent:/opt/cloudera/parcels/UNRAVEL_SENSOR/lib/java/btrace-agent.jar=config=driver,libs=spark-1.6',
-                'spark.executor.extraJavaOptions': '-javaagent:/opt/cloudera/parcels/UNRAVEL_SENSOR/lib/java/btrace-agent.jar=config=executor,libs=spark-1.6'
+                'spark.unravel.server.hostport': '%s:%s' % (unravel_host, argv.lr_port),
+                'spark.driver.extraJavaOptions': '-javaagent:%s/lib/java/btrace-agent.jar=config=driver,libs=spark-1.6' % sensor_path,
+                'spark.executor.extraJavaOptions': '-javaagent:%s/lib/java/btrace-agent.jar=config=executor,libs=spark-1.6' % sensor_path
             }
+            if argv.spark_streaming:
+                configs['spark-conf/spark-defaults.conf_client_config_safety_valve']['spark.driver.extraJavaOptions'] = '-javaagent:%s/lib/java/btrace-agent.jar=script=DriverProbe.class:SQLProbe.class:StreamingProbe.class,config=driver,libs=spark-1.6' % sensor_path
         if self.has_spark2:
             self.spark2_ver_xy = re.search('2.[0-9]', argv.spark_ver).group(0).split('.')
             configs['spark2-conf/spark-defaults.conf_client_config_safety_valve'] = {
-                'spark.unravel.server.hostport': '%s:4043' % unravel_host,
-                'spark.driver.extraJavaOptions': '-javaagent:/opt/cloudera/parcels/UNRAVEL_SENSOR/lib/java/btrace-agent.jar=config=driver,libs=spark-%s' % re.search('2.[0-9]', argv.spark_ver).group(0),
-                'spark.executor.extraJavaOptions': '-javaagent:/opt/cloudera/parcels/UNRAVEL_SENSOR/lib/java/btrace-agent.jar=config=executor,libs=spark-%s' % re.search('2.[0-9]', argv.spark_ver).group(0)
+                'spark.unravel.server.hostport': '%s:%s' % (unravel_host, argv.lr_port),
+                'spark.driver.extraJavaOptions': '-javaagent:{0}/lib/java/btrace-agent.jar=config=driver,libs=spark-{1}'.format(sensor_path, re.search('2.[0-9]', argv.spark_ver).group(0)),
+                'spark.executor.extraJavaOptions': '-javaagent:{0}/lib/java/btrace-agent.jar=config=executor,libs=spark-{1}'.format(sensor_path, re.search('2.[0-9]', argv.spark_ver).group(0))
             }
-        configs['yarn_app_mapreduce_am_command_opts'] = '-javaagent:/opt/cloudera/parcels/UNRAVEL_SENSOR/lib/java/btrace-agent.jar=libs=mr -Dunravel.server.hostport=%s:4043' % unravel_host
+            if argv.spark_streaming:
+                configs['spark2-conf/spark-defaults.conf_client_config_safety_valve']['spark.driver.extraJavaOptions'] = '-javaagent:{0}/lib/java/btrace-agent.jar=script=DriverProbe.class:SQLProbe.class:StreamingProbe.class,config=driver,libs=spark-{1}'.format(sensor_path, re.search('2.[0-9]', argv.spark_ver).group(0))
+        configs['yarn_app_mapreduce_am_command_opts'] = '-javaagent:{0}/lib/java/btrace-agent.jar=libs=mr -Dunravel.server.hostport={1}:{2}'.format(sensor_path, unravel_host, argv.lr_port)
         configs['mapreduce_client_config_safety_valve'] = {
             'mapreduce.task.profile': 'true',
             'mapreduce.task.profile.maps': '0-5',
             'mapreduce.task.profile.reduces': '0-5',
-            'mapreduce.task.profile.params': '-javaagent:/opt/cloudera/parcels/UNRAVEL_SENSOR/lib/java/btrace-agent.jar=libs=mr -Dunravel.server.hostport=%s:4043' % unravel_host,
+            'mapreduce.task.profile.params': '-javaagent:{0}/lib/java/btrace-agent.jar=libs=mr -Dunravel.server.hostport={1}:{2}'.format(sensor_path, unravel_host, argv.lr_port),
         }
-        configs['mapreduce_client_env_safety_valve'] = 'HADOOP_CLASSPATH=${HADOOP_CLASSPATH}:/opt/cloudera/parcels/UNRAVEL_SENSOR/lib/java/unravel_hive_hook.jar'
+        configs['mapreduce_client_env_safety_valve'] = 'HADOOP_CLASSPATH=${HADOOP_CLASSPATH}:%s/lib/java/unravel_hive_hook.jar' % sensor_path
         configs['unravel-properties'] = {
             "com.unraveldata.job.collector.done.log.base": "/user/history/done",
-            "com.unraveldata.job.collector.log.aggregation.base": "/app-logs/*/logs/",
+            "com.unraveldata.job.collector.log.aggregation.base": "/tmp/logs/*/logs/",
             "com.unraveldata.spark.eventlog.location": "hdfs:///user/spark/applicationHistory"
         }
+        if argv.lr_port != 4043:
+            configs['hive_client_config_safety_valve']['com.unraveldata.live.logreceiver.port'] = argv.lr_port
+            configs['unravel-properties']['com.unraveldata.live.logreceiver.port'] = argv.lr_port
+
         return configs
 
     def generate_xml_property(self, prop_name, prop_val):
@@ -162,7 +215,8 @@ class CDHSetup():
                 exit(1)
         except Exception as e:
             print(e)
-            return {'items': []}
+            print('Error: Unable to reach Cloudera Manager')
+            exit(1)
 
     def get_sensor_stat(self):
         unravel_sensor_ver = ''
@@ -226,15 +280,6 @@ class CDHSetup():
         except:
             print('Failed to get hive server2 config')
 
-    # Return a list of hosts info
-    def get_hosts_list(self):
-        try:
-            request_url = self.api_url + '/hosts'
-            res = self.get_requests(request_url)['items']
-            return res
-        except:
-            print('Failed to get host list')
-
     # Get yarn gateway full role name and configs  e.g yarn-GATEWAY-BASE
     # Return dict(yarn-gw) yarn-gw[0]: full url to yarn gateway role config, yarn-gw[1]: yarn gateway role configurations
     def get_yarn_gw_configs(self):
@@ -263,9 +308,9 @@ class CDHSetup():
                             log_dir = config.get('value', '/tmp/logs')
                         elif config.get('relatedName', 'None') == 'yarn.nodemanager.remote-app-log-dir-suffix':
                             log_suffix = config.get('value', 'logs')
-            return '%s/*/%s' % (log_dir, log_suffix)
+            return '%s/*/%s/' % (log_dir, log_suffix)
         except:
-            return '/tmp/logs/*/logs'
+            return '/tmp/logs/*/logs/'
 
     # Get spark_on_yarn gateway full role name and configs e.g spark_on_yarn-GATEWAY-BASE
     # Input: for spark 1.X no input, for spark 2.X spark_ver_x=2
@@ -284,7 +329,7 @@ class CDHSetup():
         except:
             print('Failed to get spark%s gateway config' % spark_ver_x)
 
-    # Get spark.eventLog.dir and update com.unraveldata.spark.eventlog.location in unravel.properties
+    # Get spark.eventLog.dir
     def get_spark_configs(self, spark_ver_x=''):
         try:
             if not spark_ver_x == 2:
@@ -296,7 +341,7 @@ class CDHSetup():
         except:
             print('Failed to get spark%s config' % spark_ver_x)
 
-    # Get Oozie server address that will insert into unravel.properties
+    # Get Oozie server address
     def get_oozie_server_hostname(self):
         request_url = '%s/%s/services/oozie/roleConfigGroups' % (self.api_clusters_url, self.cluster_name)
         res = self.get_requests(request_url)['items']
@@ -312,7 +357,7 @@ class CDHSetup():
                 return host['hostname'], oozie_port
         return None, None
 
-    # Gather the information to update unravel.properties
+    # Gather the informations needed for unravel.properties
     # Oozie, Hive metastore, Spark eventLog dir
     def prepare_unravel_properties(self):
         unravel_spark_log = 'com.unraveldata.spark.eventlog.location'
@@ -323,7 +368,7 @@ class CDHSetup():
             if self.has_spark:
                 for item in self.spark_configs:
                     if item['relatedName'] == 'spark.eventLog.dir':
-                        spark_eventlog = item.get('value', '/user/spark/sparkApplicationHistory')
+                        spark_eventlog = item.get('value', '/user/spark/applicationHistory')
                 if not spark_eventlog in self.configs['unravel-properties']['com.unraveldata.spark.eventlog.location']:
                     self.configs['unravel-properties']['com.unraveldata.spark.eventlog.location'] = 'hdfs://' + spark_eventlog
             if self.has_spark2:
@@ -338,7 +383,7 @@ class CDHSetup():
         except:
             pass
 
-        # hive metastore config
+        # Get hive metastore config
         try:
             request_url = self.api_clusters_url + '/%s/services/hive/config' % self.cluster_name
             hive_configs = self.get_requests(request_url).get('items', 'None')
@@ -354,6 +399,8 @@ class CDHSetup():
 
                     if config['name'] == 'hive_metastore_database_type': hive_db_type = config['value']
 
+                    if config['name'] == 'hive_metastore_database_user': hive_db_user = config['value']
+
             if hive_db_type == 'mysql':
                 hive_driver = 'com.mysql.jdbc.Driver'
             else:
@@ -361,7 +408,7 @@ class CDHSetup():
 
             self.configs['unravel-properties']['javax.jdo.option.ConnectionURL'] = 'jdbc:%s://%s:%s/%s' % (hive_db_type, hive_host, hive_port, hive_db)
             self.configs['unravel-properties']['javax.jdo.option.ConnectionDriverName'] = hive_driver
-            self.configs['unravel-properties']['javax.jdo.option.ConnectionUserName'] = 'hive'
+            self.configs['unravel-properties']['javax.jdo.option.ConnectionUserName'] = hive_db_user
             self.configs['unravel-properties']['javax.jdo.option.ConnectionPassword'] = hive_pass
         except:
             pass
@@ -375,9 +422,9 @@ class CDHSetup():
             pass
 
     # Consists of 3 parts:
-    # hive-env: hive_client_env_safety_valve
-    # hive-site: hive_client_config_safety_valve
-    # hiveserver2 hive-site: hive_hs2_config_safety_valve
+    # hive-env
+    # hive-site
+    # hiveserver2 hive-site
     def update_hive(self):
         print('\nChecking hive-env Configuration')
         self.update_hive_env()
@@ -388,8 +435,12 @@ class CDHSetup():
         print('\nChecking hiveserver2 Configuration')
         self.update_hs2_site()
 
+        print('\nChecking hadoop-env configuration')
+        self.update_hadoop_env()
+
+    #   Compare and Update hive-env.sh
+    #   Cloudera Configuration Name: Gateway Client Environment Advanced Configuration Snippet (Safety Valve) for hive-env.sh
     def update_hive_env(self):
-        # check and update AUX_CLASSPATH in hive_client_env_safety_valve (hive-env.sh)
         try:
             hive_env_api_name = 'hive_client_env_safety_valve'
             hive_env_val = self.configs[hive_env_api_name]
@@ -399,45 +450,75 @@ class CDHSetup():
                 cur_config_val = cur_config.get('value', 'None')
                 cur_config_name = cur_config.get('name', 'None')
                 if hive_env_val in cur_config_val and cur_config_name == hive_env_api_name:
-                    print_format('AUTH_CLASSPATH', print_green("No change needed"))
+                    if argv.uninstall:
+                        print_format('AUTH_CLASSPATH', print_green("will be Removed"))
+                    else:
+                        print_format('AUTH_CLASSPATH', print_green("No change needed"))
+                        find_property = True
                     if argv.verbose:
                         print_verbose(cur_config_val)
-                    find_property = True
+                elif argv.uninstall and cur_config_name == hive_env_api_name:
+                    print_format('AUTH_CLASSPATH', print_green("Not Found"))
+                    return
             if not find_property:
-                print_format('AUTH_CLASSPATH', print_red("missing"))
                 if not argv.dry_test:
+                    if argv.uninstall:
+                        if re.search(hive_env_val.replace('$', '\$'), cur_config_val):
+                            remove_regex = '\s*{0}'.format(hive_env_val.replace('$', '\$'))
+                            self.put_requests(self.hs['hive-gw'][0], hive_env_api_name, re.sub(remove_regex, '', cur_config_val))
+                    else:
+                        print_format('AUTH_CLASSPATH', print_red("Missing"))
+                        self.put_requests(self.hs['hive-gw'][0], hive_env_api_name, '%s\n%s' % (cur_config_val, hive_env_val))
                     print('Updating AUTH_CLASSPATH')
-                    self.put_requests(self.hs['hive-gw'][0], hive_env_api_name, cur_config_val + hive_env_val)
                     sleep(1)
                     print('Update Successful!')
         except Exception as e:
             print(e)
 
+    #   Compare and Update hive-site.xml
+    #   Cloudera Configuration Name: Hive Client Advanced Configuration Snippet (Safety Valve) for hive-site.xml
     def update_hive_site(self):
-        # check and update hive_client_config_safety_valve (hive-site.xml)
         try:
             hive_api_name = 'hive_client_config_safety_valve'
             hive_site_val = self.configs[hive_api_name]
             new_config = ''
+            remove_property = False
+
             for config_name, config_val in hive_site_val.iteritems():
                 config_ip_val = self.configs_ip[hive_api_name][config_name]
                 find_property = False
+
                 for cur_config in self.hs['hive-gw'][1]:
                     cur_config_val = cur_config.get('value', 'None')
                     cur_config_name = cur_config.get('name', 'None')
                     if (config_val in cur_config_val or config_ip_val in cur_config_val) and cur_config_name == hive_api_name:
-                        print_format(config_name, print_green("No change needed"))
+                        if argv.uninstall:
+                            print_format(config_name, print_green("will be removed"))
+                            remove_property = True
+                        else:
+                            print_format(config_name, print_green("No change needed"))
+                            find_property = True
                         if argv.verbose:
                             print_verbose(config_val)
-                        find_property = True
+                    elif argv.uninstall and cur_config_name == hive_api_name:
+                        print_format(config_name, print_green("Not Found"))
                     elif cur_config_name == hive_api_name:
                         if not new_config: new_config += cur_config_val
+
                 if not find_property:
-                    print_format(config_name, print_red("missing"))
-                    new_config += self.generate_xml_property(config_name, config_val)
-                    if argv.verbose: print_verbose('None', config_val)
+                    if argv.uninstall:
+                        if remove_property:
+                            remove_regex = '<property>.*%s.*?</property>\s*' % config_name
+                            if re.search(remove_regex, cur_config_val):
+                                cur_config_val = re.sub(remove_regex, '', cur_config_val)
+                                new_config = cur_config_val
+                    else:
+                        print_format(config_name, print_red("Missing"))
+                        new_config += self.generate_xml_property(config_name, config_val)
+                        if argv.verbose: print_verbose('None', config_val)
                 sleep(sleep_time)
-            if new_config and not argv.dry_test:
+
+            if (new_config or remove_property) and not argv.dry_test:
                 print('Updating hive-site configuration')
                 self.put_requests(self.hs['hive-gw'][0], hive_api_name, new_config)
                 sleep(1)
@@ -445,30 +526,49 @@ class CDHSetup():
         except Exception as e:
             print(e)
 
+    #   Compare and Update Hive Server 2 hive-site.xml
+    #   Cloudera Configuration Name: HiveServer2 Advanced Configuration Snippet (Safety Valve) for hive-site.xml
     def update_hs2_site(self):
-        # check and update hive_hs2_config_safety_valve (hive-site.xml)
         try:
             hs2_api_name = 'hive_hs2_config_safety_valve'
             hs2_val = self.configs['hive_client_config_safety_valve']
             new_config = ''
+            remove_property = False
+
             for config_name, config_val in hs2_val.iteritems():
                 config_ip_val = self.configs_ip['hive_client_config_safety_valve'][config_name]
                 find_property = False
+
                 for cur_config in self.hs['hs2'][1]:
                     cur_config_val = cur_config.get('value', 'None')
                     cur_config_name = cur_config.get('name', 'None')
                     if (config_val in cur_config_val or config_ip_val in cur_config_val) and cur_config_name == hs2_api_name:
-                        print_format(config_name, print_green("No change needed"))
+                        if argv.uninstall:
+                            print_format(config_name, print_green("will be removed"))
+                            remove_property = True
+                        else:
+                            print_format(config_name, print_green("No change needed"))
+                            find_property = True
                         if argv.verbose: print_verbose(config_val)
+                    elif argv.uninstall and cur_config_name == hs2_api_name:
                         find_property = True
+                        print_format(config_name, print_green("Not Found"))
                     elif cur_config_name == hs2_api_name:
                         if not new_config: new_config += cur_config_val
+
                 if not find_property:
-                    print_format(config_name, print_red("missing"))
-                    new_config += self.generate_xml_property(config_name, config_val)
-                    if argv.verbose: print_verbose('None', config_val)
+                    if argv.uninstall:
+                        remove_regex = '<property>.*%s.*?</property>\s*' % config_name
+                        if re.search(remove_regex, cur_config_val):
+                            cur_config_val = re.sub(remove_regex, '', cur_config_val)
+                            new_config = cur_config_val
+                    else:
+                        print_format(config_name, print_red("Missing"))
+                        new_config += self.generate_xml_property(config_name, config_val)
+                        if argv.verbose: print_verbose('None', config_val)
                 sleep(sleep_time)
-            if new_config and not argv.dry_test:
+
+            if (new_config or remove_property) and not argv.dry_test:
                 print('Updating hiveserver2 configuration')
                 self.put_requests(self.hs['hs2'][0], hs2_api_name, new_config)
                 sleep(1)
@@ -476,6 +576,8 @@ class CDHSetup():
         except Exception as e:
             print(e)
 
+    #   Compare and Update Spark/Spark2 configuration
+    #   Cloudera Configuration Name: Spark Client Advanced Configuration Snippet (Safety Valve) for spark-conf/spark-defaults.conf
     def update_spark(self, spark_ver_x=''):
         # Check spark-conf/spark-defaults.conf_client_config_safety_valve configuration and push back to cloudera
         try:
@@ -483,6 +585,8 @@ class CDHSetup():
             spark_api_name = 'spark%s-conf/spark-defaults.conf_client_config_safety_valve' % str(spark_ver_x)
             spark_val = self.configs[spark_api_name]
             new_config = ''
+            remove_property = False
+
             if spark_ver_x == 2:
                 spark_ver_xy = '.'.join(self.spark2_ver_xy)
                 spark_gw_configs = self.spark2_gw_configs
@@ -495,25 +599,49 @@ class CDHSetup():
                 find_property = False
                 config_regex = config_name + '.*'
                 for cur_config in spark_gw_configs['spark-gw'][1]:
-                    cur_config_val = cur_config.get('value', 'None')
-                    cur_config_name = cur_config.get('name', 'None')
-                    if config_val in cur_config_val or config_ip_val in cur_config_val or re.search('%s=.*(%s).*' % (config_name, spark_ver_xy), cur_config_val):
-                        print_format(config_name, print_green("No change needed"))
+                    cur_config_val = cur_config.get('value', '')
+                    cur_config_name = cur_config.get('name', '')
+                    if config_val in cur_config_val or \
+                            config_ip_val in cur_config_val or \
+                            (not argv.spark_streaming and re.search('%s=.*(%s).*' % (config_name, spark_ver_xy), cur_config_val)):
+                        if argv.uninstall:
+                            print_format(config_name, print_green("will be removed"))
+                            remove_property = True
+                        else:
+                            print_format(config_name, print_green("No change needed"))
+                            find_property = True
                         if argv.verbose: print_verbose(re.search(config_regex, cur_config_val).group(0))
+                    elif cur_config_name == spark_api_name and argv.uninstall:
                         find_property = True
+                        print_format(config_name, print_green("Not Found"))
                     elif cur_config_name == spark_api_name:
-                        if not new_config: new_config += cur_config_val
+                        if not new_config: new_config += cur_config_val + '\n'
+
                 if not find_property:
-                    if re.search(config_regex, new_config):
+                    # Preparing new configuration file without unravel proper
+                    if argv.uninstall:
+                        remove_regex = '{0}={1}\s*'.format(config_name, config_val).replace('/', '\/')
+                        remove_part_regex = '\s*%s\s*' % config_val.replace('/', '\/')
+                        if new_config:
+                            cur_config_val = new_config
+                        if re.search(remove_regex, cur_config_val):                                 # Remove full line
+                            cur_config_val = re.sub(remove_regex, '', cur_config_val)
+                            new_config = cur_config_val
+                        elif re.search(remove_part_regex, cur_config_val):                          # Remove only unravel portion
+                            cur_config_val = re.sub(remove_part_regex, '', cur_config_val)
+                            new_config = cur_config_val
+                    elif re.search(config_regex, new_config):
                         print_format(config_name, print_red("Missing value"))
-                        if argv.verbose: print_verbose(re.search(config_regex, cur_config_val).group(0), config_val)
+                        if argv.verbose: print_verbose(re.search(config_regex, cur_config_val).group(0), '%s=%s' % (config_name, config_val))
                         new_config = re.sub(config_name + '.*', '%s=%s' % (config_name, config_val), new_config)
+                    #
                     else:
-                        print_format(config_name, print_red("missing"))
+                        print_format(config_name, print_red("Missing"))
                         if argv.verbose: print_verbose('None', config_val)
                         new_config += '%s=%s\n' % (config_name, config_val)
                 sleep(sleep_time)
-            if new_config and not argv.dry_test:
+
+            if (new_config or remove_property) and not argv.dry_test:
                 print('Updating Spark%s configuration' % str(spark_ver_x))
                 if spark_ver_x == 2:
                     self.put_requests(self.spark2_gw_configs['spark-gw'][0], spark_api_name, new_config)
@@ -524,10 +652,10 @@ class CDHSetup():
         except Exception as e:
             print(e)
 
+    # Consists of 2 parts:
+    # mapred-site
+    # yarn mapreduce javaopts
     def update_yarn(self):
-        print('\nChecking hadoop-env configuration')
-        self.update_hadoop_env()
-
         print('\nChecking mapred-site configuration')
         self.update_mapred()
 
@@ -540,22 +668,34 @@ class CDHSetup():
             hadoop_env_val = self.configs[hadoop_env_api_name]
             find_property = False
             for cur_config in self.yarn_gw['yarn-gw'][1]:
-                cur_config_val = cur_config.get('value', 'None')
-                cur_config_name = cur_config.get('name', 'None')
+                cur_config_val = cur_config.get('value', '')
+                cur_config_name = cur_config.get('name', '')
                 if hadoop_env_val in cur_config_val and cur_config_name == hadoop_env_api_name:
-                    print_format(cur_config_name, print_green('No change needed'))
+                    if argv.uninstall:
+                        print_format(cur_config_name, print_green('will be removed'))
+
+                    else:
+                        print_format(cur_config_name, print_green('No change needed'))
+                        find_property = True
                     if argv.verbose: print_verbose(cur_config_val)
-                    find_property = True
+                    break
+                elif argv.uninstall and cur_config_name == hadoop_env_api_name:
+                    print_format(cur_config_name, print_green('Not Found'))
                     break
                 elif cur_config_name == hadoop_env_api_name:
-                    if cur_config_val != 'None':
-                        cur_config_val += ' ' + hadoop_env_val
+                    print_format(cur_config_name, print_red('Missing value'))
+                    if cur_config_val != '':
+                        cur_config_val += '\n' + hadoop_env_val
                     else:
                         cur_config_val = hadoop_env_val
+                    if argv.verbose: print_verbose('None', cur_config_val)
                     break
             if not find_property:
-                print_format(cur_config_name, print_red('Missing value'))
                 if not argv.dry_test:
+                    if argv.uninstall:
+                        remove_regex = '\s*%s\s*' % hadoop_env_val.replace('$', '\$')
+                        if re.search(remove_regex, cur_config_val):
+                            cur_config_val = re.sub(remove_regex, '', cur_config_val)
                     print('Updating hadoop-env configuration')
                     self.put_requests(self.yarn_gw['yarn-gw'][0], hadoop_env_api_name, cur_config_val)
                     sleep(1)
@@ -563,11 +703,15 @@ class CDHSetup():
         except Exception as e:
             print(e)
 
+    #   Compare and Update mapred-site.xml configuration
+    #   Cloudera configuration name: MapReduce Client Advanced Configuration Snippet (Safety Valve) for mapred-site.xml
     def update_mapred(self):
         try:
             mapred_api_name = 'mapreduce_client_config_safety_valve'
             mapred_val = self.configs[mapred_api_name]
             new_config = ''
+            remove_property = False
+
             for config_name, config_val in mapred_val.iteritems():
                 config_ip_val = self.configs_ip[mapred_api_name][config_name]
                 property_ip_regex = self.generate_regex(config_name, '.*' + config_ip_val + '.*')
@@ -575,31 +719,46 @@ class CDHSetup():
                 property_regex_raw = self.generate_regex(config_name)
                 find_property = False
                 for cur_config in self.yarn_gw['yarn-gw'][1]:
-                    cur_config_val = cur_config.get('value', 'None')
-                    cur_config_name = cur_config.get('name', 'None')
+                    cur_config_val = cur_config.get('value', '')
+                    cur_config_name = cur_config.get('name', '')
                     if cur_config_name == mapred_api_name and (re.search(property_regex, cur_config_val) or re.search(property_ip_regex, cur_config_val)):
-                        print_format(config_name, print_green("No change needed"))
+                        if argv.uninstall:
+                            print_format(config_name, print_green("will be removed"))
+                            remove_property = True
+                        else:
+                            print_format(config_name, print_green("No change needed"))
                         if argv.verbose: print_verbose(re.search(property_regex_raw, cur_config_val).group(1))
                         find_property = True
+                    elif cur_config_name == mapred_api_name and argv.uninstall:
+                        print_format(config_name, print_green("Not Found"))
                     elif cur_config_name == mapred_api_name:
                             if not new_config: new_config += cur_config_val
+
                 if not find_property:
-                    new_property = self.generate_xml_property(config_name, config_val)
-                    print_format(config_name, print_red("missing"))
-                    if '<name>' + config_name + '</name>' in new_config:
-                        cur_val = re.search(property_regex_raw, new_config).group(1)
-                        if config_name == 'mapreduce.task.profile.params':
-                            new_property = self.generate_xml_property(config_name, cur_val + ' ' + config_val)
-                            if argv.verbose: print_verbose(cur_val, cur_val + ' ' + config_val)
-                        else:
-                            new_property = self.generate_xml_property(config_name, config_val)
-                            if argv.verbose: print_verbose(cur_val, config_val)
-                        new_config = re.sub(property_regex_raw, new_property, new_config)
+                    if argv.uninstall:
+                        if remove_property:
+                            remove_regex = '<property>.*%s.*?</property>\s*' % config_name
+                            if re.search(remove_regex, cur_config_val):
+                                cur_config_val = re.sub(remove_regex, '', cur_config_val)
+                                new_config = cur_config_val
                     else:
-                        new_config += new_property
-                        if argv.verbose: print_verbose(cur_config_val, config_val)
+                        new_property = self.generate_xml_property(config_name, config_val)
+                        print_format(config_name, print_red("Missing"))
+                        if '<name>' + config_name + '</name>' in new_config:
+                            cur_val = re.search(property_regex_raw, new_config).group(1)
+                            if config_name == 'mapreduce.task.profile.params':
+                                new_property = self.generate_xml_property(config_name, cur_val + ' ' + config_val)
+                                if argv.verbose: print_verbose(cur_val, cur_val + ' ' + config_val)
+                            else:
+                                new_property = self.generate_xml_property(config_name, config_val)
+                                if argv.verbose: print_verbose(cur_val, config_val)
+                            new_config = re.sub(property_regex_raw, new_property, new_config)
+                        else:
+                            new_config += new_property
+                            if argv.verbose: print_verbose(cur_config_val, config_val)
                 sleep(sleep_time)
-            if new_config and not argv.dry_test:
+
+            if (new_config or remove_property) and not argv.dry_test:
                 print('Updating mapred-site configuration')
                 self.put_requests(self.yarn_gw['yarn-gw'][0], mapred_api_name, new_config)
                 sleep(1)
@@ -607,6 +766,8 @@ class CDHSetup():
         except Exception as e:
             print(e)
 
+    #   Compare and Update Mapreduce Java opts
+    #   Cloudera Property Name: ApplicationMaster Java Opts Base
     def update_javaopts(self):
         try:
             javaopts_api_name = 'yarn_app_mapreduce_am_command_opts'
@@ -614,22 +775,33 @@ class CDHSetup():
             javaopts_ip_val = self.configs_ip[javaopts_api_name]
             find_property = False
             for cur_config in self.yarn_gw['yarn-gw'][1]:
-                cur_config_val = cur_config.get('value', 'None')
-                cur_config_name = cur_config.get('name', 'None')
+                cur_config_val = cur_config.get('value', '')
+                cur_config_name = cur_config.get('name', '')
                 if (javaopts_val in cur_config_val or javaopts_ip_val in cur_config_val) and cur_config_name == javaopts_api_name:
-                    print_format(cur_config_name, print_green("No change needed"))
+                    if argv.uninstall:
+                        print_format(cur_config_name, print_green("will be removed"))
+                    else:
+                        print_format(cur_config_name, print_green("No change needed"))
+                        find_property = True
                     if argv.verbose: print_verbose(cur_config_val)
-                    find_property = True
                     break
+                elif cur_config_name == javaopts_api_name and argv.uninstall:
+                    print_format(cur_config_name, print_green("No Found"))
                 elif cur_config_name == javaopts_api_name:
                     break
+
             if not find_property:
-                print_format(javaopts_api_name, print_red("Missing value"))
-                if cur_config_val == 'None':
-                    javaopts_val = cur_config['default'] + ' ' + javaopts_val
+                if argv.uninstall:
+                    remove_regex = '\s*%s\s*' % javaopts_val.replace('/', '\/')
+                    if re.search(remove_regex, cur_config_val):
+                        javaopts_val = re.sub(remove_regex, '', cur_config_val)
                 else:
-                    javaopts_val = cur_config_val + ' ' + javaopts_val
-                if argv.verbose: print_verbose(cur_config_val, javaopts_val)
+                    print_format(javaopts_api_name, print_red("Missing value"))
+                    if cur_config_val == '':
+                        javaopts_val = cur_config['default'] + ' ' + javaopts_val
+                    elif not cur_config_val == '':
+                        javaopts_val = cur_config_val + ' ' + javaopts_val
+                    if argv.verbose: print_verbose(cur_config_val, javaopts_val)
                 if not argv.dry_test:
                     print('Updating javaopt in Yarn')
                     self.put_requests(self.yarn_gw['yarn-gw'][0], javaopts_api_name, javaopts_val)
@@ -660,7 +832,7 @@ class CDHSetup():
                             else:
                                 correct_flag = False
                         if not correct_flag:
-                            print_format(config, print_red("Missing value"))
+                            print_format(config, print_red("Missing Value"))
                             new_config += '%s=%s\n' % (config, val)
                             if argv.verbose:
                                 print_verbose(cur_config.strip(), config + '=' + val)
@@ -669,7 +841,7 @@ class CDHSetup():
                             if argv.verbose:
                                 print_verbose(config + '=' + val)
                     else:
-                        print_format(config, print_red("missing"))
+                        print_format(config, print_red("Missing Value"))
                         new_config += '%s=%s\n' % (config, val)
                         if argv.verbose:
                             print_verbose(None, config + '=' + val)
@@ -753,7 +925,10 @@ def print_yellow(input_str):
 
 
 def print_verbose(cur_val, sug_val=None):
-    print('Current Configuration: ' + print_yellow(str(cur_val)))
+    if cur_val:
+        print('Current Configuration: ' + print_yellow(str(cur_val)))
+    else:
+        print('Current Configuration: ' + (str(cur_val)))
     if sug_val:
         print('Suggest Configuration: ' + print_green(str(sug_val)))
 # --------------------------------------------- Helper functions
@@ -765,13 +940,17 @@ def main():
     if argv.sensor_only:
         exit()
     if cdh_setup.parcel_installed:
-        cdh_setup.update_hive()
-        cdh_setup.update_spark()
-        if cdh_setup.has_spark2:
-            cdh_setup.update_spark(spark_ver_x=2)
-        cdh_setup.update_yarn()
-        cdh_setup.update_unravel_properties()
-        if argv.restart_cm:
+        if INSTALL_ALL or argv.hive_only:   # Update hive-site.xml
+            cdh_setup.update_hive()
+        if INSTALL_ALL or argv.spark_only:  # Update Spark/Spark2 spark-defaults.conf
+            cdh_setup.update_spark()
+            if cdh_setup.has_spark2:
+                cdh_setup.update_spark(spark_ver_x=2)
+        if argv.mr_only or argv.all:                    # Update mapred-site.xml (Optional for MR Resource Tab)
+            cdh_setup.update_yarn()
+        if INSTALL_ALL or argv.unravel_only:
+            cdh_setup.update_unravel_properties()
+        if argv.restart_cm:                 # Restart Cloudera Staled services default disable
             cdh_setup.restart_cm()
     else:
         print('Unravel Parcel did NOT install skip configuration')
