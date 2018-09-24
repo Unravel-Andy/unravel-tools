@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.1.1
+# v1.1.2
 # Unraveldata MAPR instrumentation script
 import os
 import re
@@ -14,10 +14,18 @@ from shutil import copyfile
 import xml.etree.ElementTree as ET
 from subprocess import Popen, PIPE
 
+try:
+    unravel_hostname = Popen(['hostname'], stdout=PIPE).communicate()[0].strip()
+except:
+    unravel_hostname = None
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--spark-version", help="spark version e.g. 1.6.3 or 2.1.0", dest='spark_ver', required=True)
 parser.add_argument("--hive-version", help="hive version e.g. 1.2 or 2.1", dest='hive_ver', required=True)
-parser.add_argument("--unravel-server", help="Unravel Server hostname/IP", dest='unravel', required=True)
+if unravel_hostname:
+    parser.add_argument("--unravel-server", help="Unravel Server hostname/IP", dest='unravel', default=unravel_hostname)
+else:
+    parser.add_argument("--unravel-server", help="Unravel Server hostname/IP", dest='unravel', required=True)
 parser.add_argument("--dry-run", help="Only Test but will not update anything", dest='dry_test', action='store_true')
 parser.add_argument("-v", "--verbose", help="print current and suggess configuration", action='store_true')
 parser.add_argument("--sensor-only", help="check/upgrade Unravel Sensor Only", dest='sensor_only', action='store_true')
@@ -56,9 +64,20 @@ class MaprSetup:
         self.spark_version_xyz = argv.spark_ver.split('.')
         self.unravel_base_url = argv.unravel
         self.base_mapr_path = '/opt/mapr/'
+        self.cluste_name = self.get_mapr_clustername()
         self.configs = self.generate_configs()
         self.do_hive = True
         self.do_spark = True
+
+    def get_mapr_clustername(self):
+        try:
+            mapr_conf = os.path.join(self.base_mapr_path, 'conf/mapr-clusters.conf')
+            with open(mapr_conf, 'r') as f:
+                cluster_name = f.read().split(' ')[0]
+                f.close()
+            return cluster_name
+        except:
+            return 'default'
 
     #   Input: Unravel host IP or hostname
     #   Return:  dict of all the configurations
@@ -101,7 +120,9 @@ class MaprSetup:
                                          "com.unraveldata.is_mapr": "true",
                                          "fs.defaultFS": "maprfs://",
                                          "com.unraveldata.job.collector.log.aggregation.base": "/tmp/logs/*/logs/",
-                                         "com.unraveldata.spark.eventlog.location": "maprfs:///apps/spark"
+                                         "com.unraveldata.spark.eventlog.location": "maprfs:///apps/spark",
+                                         "com.unraveldata.clustertype": 'MAPR',
+                                         "com.unraveldata.clustername": self.cluste_name
                                         }
         configs['yarn-site'] = {
                                 "yarn.resourcemanager.webapp.address": ["%s:8088" % self.get_resourcemanager_host(), ' '],
@@ -260,14 +281,14 @@ class MaprSetup:
                         origin_regex = config + '.*'
                         origin_config = re.search(origin_regex, content).group(0)
                         new_config = origin_config + ' ' + val
-                        if argv.verbose: print_verbose(origin_config, new_config)
+                        if argv.verbose: print_verbose(origin_config, config + ' ' + val)
                     else:
                         print("{0} {1:>{width}}".format(config, "Missing value", width=80-len(config)))
                         origin_regex = config + '.*'
                         origin_config = re.search(origin_regex, content).group(0)
-                        new_config = origin_config + ' ' + val
+                        new_config = config + ' ' + val
                         new_config = re.sub(origin_regex, new_config, content)
-                        if argv.verbose: print_verbose(origin_config, new_config)
+                        if argv.verbose: print_verbose(origin_config, config + ' ' + val)
                 else:
                     print("{0} {1:>{width}}".format(config, "missing", width=80-len(config)))
                     content += '\n' + config + ' ' + val
@@ -395,11 +416,11 @@ class MaprSetup:
                         else:
                             print("{0} {1:>{width}}".format(config, "Missing value", width=80 - len(config)))
                             new_config += '%s=%s\n' % (config, val)
-                            if argv.verbose: print_verbose(orgin_config, new_config)
+                            if argv.verbose: print_verbose(orgin_config, '%s=%s\n' % (config, val)) # print current config and suggest config
                     else:
                         print("{0} {1:>{width}}".format(config, "missing", width=80-len(config)))
                         new_config += '%s=%s\n' % (config, val)
-                        if argv.verbose: print_verbose('None', new_config)
+                        if argv.verbose: print_verbose('None', '%s=%s\n' % (config, val))   # print suggest config
                 if len(new_config.split('\n')) > 1 and not argv.dry_test:
                     with open(unravel_properties_path, 'a') as f:
                         f.write(headers + new_config)
