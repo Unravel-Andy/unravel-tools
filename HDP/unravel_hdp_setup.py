@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# v1.1.1
+# v1.1.2
 # Unraveldata HDP instrumentation script
 
 import os
@@ -102,11 +102,11 @@ class HDPSetup:
         self.spark_version_xyz = argv.spark_ver.split('.')
         self.unravel_base_url = argv.unravel
         self.ambari_api_url = "{1}://{0}:{2}/api/v1/".format(argv.ambari, argv.ambari_protocol, argv.ambari_port)
+        self.cluster_name = self.read_configs('clusters')['items'][0]['Clusters']['cluster_name']
         self.configs = self.generate_configs(argv.unravel)
         self.configs_ip = self.generate_configs(argv.unravel_ip)
         self.do_hive = True
         self.do_spark = True
-        self.cluster_name = self.read_configs('clusters')['items'][0]['Clusters']['cluster_name']
         self.current_config_tag = self.read_configs('clusters?fields=Clusters/desired_configs')['items'][0]['Clusters'][
             'desired_configs']
         self.configs_base_url = 'clusters/' + self.cluster_name + '/configurations'
@@ -162,7 +162,9 @@ class HDPSetup:
             "com.unraveldata.job.collector.done.log.base": "/mr-history/done",
             "com.unraveldata.job.collector.log.aggregation.base": "/app-logs/*/logs/",
             "com.unraveldata.spark.eventlog.location": "hdfs:///spark-history",
-            "com.unraveldata.sensor.tasks.disabled": "iw"
+            "com.unraveldata.sensor.tasks.disabled": "iw",
+            "com.unraveldata.cluster.type": 'HDP',
+            "com.unraveldata.cluster.name": self.cluster_name
         }
         configs['tez-site'] = {
             'tez.am.launch.cmd-opts': '-javaagent:{0}/jars/btrace-agent.jar=libs=mr,config=tez -Dunravel.server.hostport={1}:{2}'.format(agent_path, unravel_host, argv.lr_port),

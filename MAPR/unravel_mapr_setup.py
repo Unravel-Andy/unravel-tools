@@ -121,8 +121,8 @@ class MaprSetup:
                                          "fs.defaultFS": "maprfs://",
                                          "com.unraveldata.job.collector.log.aggregation.base": "/tmp/logs/*/logs/",
                                          "com.unraveldata.spark.eventlog.location": "maprfs:///apps/spark",
-                                         "com.unraveldata.clustertype": 'MAPR',
-                                         "com.unraveldata.clustername": self.cluste_name
+                                         "com.unraveldata.cluster.type": 'MAPR',
+                                         "com.unraveldata.cluster.name": self.cluste_name
                                         }
         configs['yarn-site'] = {
                                 "yarn.resourcemanager.webapp.address": ["%s:8088" % self.get_resourcemanager_host(), ' '],
