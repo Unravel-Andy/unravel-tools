@@ -111,22 +111,24 @@ class SensorCheck:
             ssh_result = self.ssh_command(host)
             if not ssh_result == 'None':
                 sensor_version = re.search('(Unravel Version:)(.*)', ssh_result).group(2)
-                md5sum = ssh_result.split('\n')[-2]
+                hive_hook_md5sum = ssh_result.split('\n')[-2]
+                spark16_md5sum = ssh_result.split('\n')[-3]
                 print('{}: {}'.format(host, sensor_version))
-                print('hive hook md5sum: {}\n'.format(md5sum))
+                print('spark 1.6 md5sum: {}'.format(spark16_md5sum))
+                print('hive hook md5sum: {}\n'.format(hive_hook_md5sum))
 
     def ssh_command(self, host_name, ssh_user='root'):
         if self.cluster_type == 'MAPR' or self.cluster_type == 'HDP':
             version_path = '/usr/local/unravel-agent/jars/version.txt'
-            spark_sensor_path = '/usr/local/unravel-agent/jars/'
+            spark_sensor_path = '/usr/local/unravel-agent/jars/btrace-libs/spark-1.6/system/unravel-spark-1.6-sys.jar'
             hive_sensor_path = '/usr/local/unravel_client/*'
-            ssh_popen = Popen('ssh {0}@{1} \'cat {2}; md5sum {3}\''.format(ssh_user, host_name, version_path, hive_sensor_path), shell=True, stdout=PIPE, stderr=PIPE)
+            ssh_popen = Popen('ssh {0}@{1} \'cat {2}; md5sum {3}; md5sum {4}\''.format(ssh_user, host_name, version_path, hive_sensor_path, spark_sensor_path), shell=True, stdout=PIPE, stderr=PIPE)
         else:
             version_path = '/opt/cloudera/parcels/UNRAVEL_SENSOR/lib/java/version.txt'
-            spark_sensor_path = '/opt/cloudera/parcels/UNRAVEL_SENSOR/lib/java/'
+            spark_sensor_path = '/opt/cloudera/parcels/UNRAVEL_SENSOR/lib/java/btrace-libs/spark-1.6/system/unravel-spark-1.6-sys.jar'
             hive_sensor_path = '/opt/cloudera/parcels/UNRAVEL_SENSOR/lib/java/unravel_hive_hook.jar'
             ssh_popen = Popen(
-                'ssh {0}@{1} \'cat {2}; md5sum {2}\''.format(ssh_user, host_name, version_path, hive_sensor_path), shell=True,
+                'ssh {0}@{1} \'cat {2}; md5sum {3}; md5sum {4}\''.format(ssh_user, host_name, version_path, hive_sensor_path, spark_sensor_path), shell=True,
                 stdout=PIPE, stderr=PIPE)
         ssh_result = ssh_popen.communicate()
         if ssh_popen.returncode == 0:
