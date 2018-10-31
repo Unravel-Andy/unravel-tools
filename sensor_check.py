@@ -111,8 +111,8 @@ class SensorCheck:
             ssh_result = self.ssh_command(host)
             if not ssh_result == 'None':
                 sensor_version = re.search('(Unravel Version:)(.*)', ssh_result).group(2)
-                hive_hook_md5sum = ssh_result.split('\n')[-2]
-                spark16_md5sum = ssh_result.split('\n')[-3]
+                hive_hook_md5sum = ssh_result.split('\n')[-3]
+                spark16_md5sum = ssh_result.split('\n')[-2]
                 print('{}: {}'.format(host, sensor_version))
                 print('spark 1.6 md5sum: {}'.format(spark16_md5sum))
                 print('hive hook md5sum: {}\n'.format(hive_hook_md5sum))
