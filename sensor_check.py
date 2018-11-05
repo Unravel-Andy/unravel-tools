@@ -61,7 +61,7 @@ class SensorCheck:
         except Exception as e:
             print(e)
             print(req_url)
-            return {}
+            raise ValueError(e.message)
 
     def get_cdh_hosts(self):
         agent_ini = '/etc/cloudera-scm-agent/config.ini'
@@ -71,7 +71,10 @@ class SensorCheck:
             if argv.port:
                 res = self.get_request(host_name, argv.port, 'api/v11/hosts', https=argv.https)
             else:
-                res = self.get_request(host_name, 7180, 'api/v11/hosts')
+                try:
+                    res = self.get_request(host_name, 7180, 'api/v11/hosts')
+                except:
+                    res = self.get_request(host_name, 7183, 'api/v11/hosts', https=True)
             for host in res['items']:
                 hosts_list.append(host['hostname'])
             return(hosts_list)
@@ -87,7 +90,10 @@ class SensorCheck:
             if argv.port:
                 res = self.get_request(host_name, argv.port, 'api/v1/hosts', https=argv.https)
             else:
-                res = self.get_request(host_name, 8080, 'api/v1/hosts')
+                try:
+                    res = self.get_request(host_name, 8080, 'api/v1/hosts')
+                except:
+                    res = self.get_request(host_name, 8443, 'api/v1/hosts', https=True)
             for host in res['items']:
                 hosts_list.append(host['Hosts']['host_name'])
             return (hosts_list)
