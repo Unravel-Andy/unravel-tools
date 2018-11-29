@@ -1,6 +1,7 @@
 #! /usr/bin/python
 """
 Script to check Unravel Sensor Version Please Run this script in unravel server
+passwordless ssh need to be setup first
 """
 import os
 import re
