@@ -1,10 +1,10 @@
 #! /usr/bin/python
+"""
+Script to check Unravel Sensor Version Please Run this script in unravel server
+"""
 import os
 import re
-try:
-    import urllib2
-except:
-    import urllib
+import urllib2
 import base64
 import json
 import argparse
@@ -13,17 +13,28 @@ from subprocess import PIPE, Popen
 parser = argparse.ArgumentParser()
 parser.add_argument('--username', default='admin', help='username used to log in Ambari or CM default is admin')
 parser.add_argument('--password', default='admin', help='password used to log in Ambari or CM default is admin')
-parser.add_argument('--port', help='default server port 8080 for HDP or 7180 for CDH')
+parser.add_argument('--port', help='default server port 8080 for HDP or 7180 for CDH', default='')
 parser.add_argument('--https', action='store_true', default=False)
 argv = parser.parse_args()
 
 # check unravel sensor version across the cluster
 class SensorCheck:
-    def __init__(self):
+    def __init__(self, username, password, port=None, https=False):
+        """
+        :param username: username for ambari/CM
+        :param password: password for ambari/CM
+        :param port:
+        :param https: boolean
+        """
+        self.username = username
+        self.password = password
+        self.port = port
+        self.https = https
         self.cluster_type = self.get_cluster_type()
         self.hosts_list = self.get_cluster_hosts()
 
-    def get_cluster_type(self):
+    @staticmethod
+    def get_cluster_type():
         hadoop_popen = Popen('hadoop version', stderr=PIPE, stdout=PIPE, shell=True)
         hadoop_version = hadoop_popen.communicate()[0]
         cluster_type = 'UNKNOWN'
@@ -53,7 +64,7 @@ class SensorCheck:
             req_url = 'http://{}:{}/{}'.format(hostname, port, api)
 
         request = urllib2.Request(req_url)
-        base64string = base64.b64encode('%s:%s' % (argv.username, argv.password))
+        base64string = base64.b64encode('%s:%s' % (self.username, self.password))
         request.add_header("Authorization", "Basic %s" % base64string)
         try:
             res = urllib2.urlopen(request, timeout=10)
@@ -61,20 +72,17 @@ class SensorCheck:
         except Exception as e:
             print(e)
             print(req_url)
-            raise ValueError(e.message)
+            return {}
 
     def get_cdh_hosts(self):
         agent_ini = '/etc/cloudera-scm-agent/config.ini'
         hosts_list = []
         if os.path.exists(agent_ini):
             host_name = re.search('\s(server_host=)(.*)', open(agent_ini, 'r').read()).group(2)
-            if argv.port:
-                res = self.get_request(host_name, argv.port, 'api/v11/hosts', https=argv.https)
+            if self.port:
+                res = self.get_request(host_name, self.port, 'api/v11/hosts', https=argv.https)
             else:
-                try:
-                    res = self.get_request(host_name, 7180, 'api/v11/hosts')
-                except:
-                    res = self.get_request(host_name, 7183, 'api/v11/hosts', https=True)
+                res = self.get_request(host_name, 7180, 'api/v11/hosts')
             for host in res['items']:
                 hosts_list.append(host['hostname'])
             return(hosts_list)
@@ -87,13 +95,10 @@ class SensorCheck:
         hosts_list = []
         if os.path.exists(agent_ini):
             host_name = re.search('\s(hostname=)(.*)', open(agent_ini, 'r').read()).group(2)
-            if argv.port:
-                res = self.get_request(host_name, argv.port, 'api/v1/hosts', https=argv.https)
+            if self.port:
+                res = self.get_request(host_name, self.port, 'api/v1/hosts', https=argv.https)
             else:
-                try:
-                    res = self.get_request(host_name, 8080, 'api/v1/hosts')
-                except:
-                    res = self.get_request(host_name, 8443, 'api/v1/hosts', https=True)
+                res = self.get_request(host_name, 8080, 'api/v1/hosts')
             for host in res['items']:
                 hosts_list.append(host['Hosts']['host_name'])
             return (hosts_list)
@@ -101,7 +106,8 @@ class SensorCheck:
             print('%s not exists' % agent_ini)
         return hosts_list
 
-    def get_mapr_hosts(self):
+    @staticmethod
+    def get_mapr_hosts():
         mapr_popen = Popen('maprcli node list -json', shell=True, stdout=PIPE, stderr=PIPE)
         popen_result = mapr_popen.communicate()
         hosts_list = []
@@ -113,15 +119,23 @@ class SensorCheck:
         return hosts_list
 
     def get_sensor_version(self):
+        """
+        :return: dict of results
+        """
+        result = {}
         for host in self.hosts_list:
             ssh_result = self.ssh_command(host)
             if not ssh_result == 'None':
                 sensor_version = re.search('(Unravel Version:)(.*)', ssh_result).group(2)
-                hive_hook_md5sum = ssh_result.split('\n')[-3]
-                spark16_md5sum = ssh_result.split('\n')[-2]
+                hive_hook_md5sum = ssh_result.split('\n')[-2]
+                spark16_md5sum = ssh_result.split('\n')[-3]
                 print('{}: {}'.format(host, sensor_version))
                 print('spark 1.6 md5sum: {}'.format(spark16_md5sum))
                 print('hive hook md5sum: {}\n'.format(hive_hook_md5sum))
+                result[host] = {"sensor_version": sensor_version,
+                                "hive_hook_md5sum": hive_hook_md5sum,
+                                "spark16_md5sum": spark16_md5sum}
+        return result
 
     def ssh_command(self, host_name, ssh_user='root'):
         if self.cluster_type == 'MAPR' or self.cluster_type == 'HDP':
@@ -154,7 +168,7 @@ def get_installed_unravel_version():
         return 'None'
 
 
-main = SensorCheck()
+main = SensorCheck(argv.username, argv.password, port=argv.port, https=argv.https)
 print('Getting Unravel Sensor Version')
 print('Cluster type: %s' % main.cluster_type)
 print('Installed Unravel Version: %s' % get_installed_unravel_version())
